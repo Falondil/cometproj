@@ -26,13 +26,13 @@ electrontemperature = 10 # eV
 u_ion = 1
 x_comet = 1
 x_thickness = 1
-Del_t = 0.01 # timestep between ionization bursts, unitless. 1 is time for unaccelerated ions to traverse one shell width.
+Del_t = 0.1 # timestep between ionization bursts, unitless. 1 is time for unaccelerated ions to traverse one shell width.
 
 #-----------------------------------Creation-----------------------------------
 
 # 1.1 General parameter choices
 number_of_shells = int(1e2)
-x_k = [x_comet+x_comet*k for k in range(number_of_shells+1)] # every equally thick shell has an equal number of ionization events per unit time. Unitless, go to 1000 comet radii.
+x_k = [x_comet+x_comet*k for k in range(number_of_shells+1)] # every equally thick shell has an equal number of ionization events per unit time. Unitless
 x_k_i = x_k[:-int(len(x_k)/2)] # shells in which we consider ionization
 
 nu = 1e6 # ionization frequency [number/s], PLACEHOLDER VALUE. Since this is always multiplied by Del_t it could be replaced for a Mean number of ionizations 
@@ -50,25 +50,14 @@ def ioncreation(n, final_k): # creates n ions, equally many in each shell, up to
     return ilist    
     
 def ionshellcreation(n, k): # creates n ions uniformly distributed in the k-th shell
-        rmin = x_k[k]
-        rmax = x_k[k+1]
-        r_ion = []
+        xmin = x_k[k]
+        xmax = x_k[k+1]
+        x_ion = []
         for i in range(n): 
-            r_ion += [random.uniform(rmin, rmax)]
-            # r_ion += [rmin+(rmax-rmin)*random.random()]
-        r_ion.sort()
-        ilist = [[r, v_ion, k] for r in r_ion] # when k is given as a function argument
+            x_ion += [random.uniform(xmin, xmax)]
+        x_ion.sort()
+        ilist = [[x, u_ion, k] for x in x_ion] # when k is given as a function argument
         return ilist
-    
-def electroncreation(n, kBT):
-    elist = []
-    # Maxwell-Boltzmann energy distribution is the Gamma distribution with Shape = 3/2 and Scale = k*T
-    shape = 3/2
-    scale = kBT
-    for i in range(n):
-        elist += [random.gammavariate(shape, scale)]
-    elist.sort()
-    return elist
 
 # 1.3 Randomly generating the ions and electrons
 # ions
@@ -84,24 +73,15 @@ if n_ion > 1000:
     plt.title('Radial distribution of randomly generated ions')
     
 # electrons 
-electronlist = electroncreation(n_ion, electrontemperature) # energy of the electrons, same number as electrons
-if n_ion > 1000:
-    plt.figure()
-    plt.hist(electronlist, bins = 100, density = True)
-    plt.hist(electronlist, bins = 10, density = True, fill = False)
-    plt.xlabel('Electron energy [eV]')
-    plt.ylabel('Number of electrons (pdf normalization)') # Normalization: area of all bins = 1
-    plt.title('Energy distribution of randomly generated electrons')
 
 # 1.4 Creating the first potential
 
 Q = 1e25 # [s-1], number of neutrals per second leaving the comet surface
 N0 = Q/(4*np.pi*r_comet**2*v_ion) # [m-3], neutral density at the comet surface
-# This nu is nu in units of [m-3 s-1]. Different nu than at the start. Consider this. 
 
-# phi(r) = (nu dt N0 (r/R)**2 k Te/e) # Units wrong? is e needed? Yes because phi is not units of energy, e*phi is.
-phi_at_r_comet = 1e7 # PLACEHOLDER. CALCULATE VIA ANDERS PICTURE ON WHITEBOARD
-phi0 = [phi_at_r_comet*(r_comet/r)**2 for r in x_k] # THIS SHOULD BE IN x_k_i INSTEAD BUT THEN THE LIST IS TOO SHORT.
+# phi(r) = (nu_0 dt N0 (r/R)**2 k Te/e) # Units wrong? is e needed? Yes because phi is not units of energy, e*phi is.
+phi_at_r_comet = 1e1 # PLACEHOLDER. CALCULATE VIA ANDERS PICTURE ON WHITEBOARD
+phi0 = [phi_at_r_comet*(x_comet/x)**2 for x in x_k] # THIS SHOULD BE IN x_k_i INSTEAD BUT THEN THE LIST IS TOO SHORT.
 
 #----------------------------------Ion motion----------------------------------
 
@@ -123,6 +103,7 @@ def timeevaluator(v0, a, s, s_alt): # Handles complex roots but requires both s_
 
 # Recursive method
 def ionmotion(ion, Delta_t, Elist): # ion = [r_ion, v_ion, shell_number], rlist is the limits of all shells. Elist is the electric field in all shells
+    print(ion[2])
     a = Elist[ion[2]]
     
     s_inner = x_k[ion[2]]-ion[0] # (signed) distance to border of inner shell
@@ -136,13 +117,13 @@ def ionmotion(ion, Delta_t, Elist): # ion = [r_ion, v_ion, shell_number], rlist 
     else:
         crossing_t, s = timeevaluator(ion[1], a, s_inner, s_outer)
     if crossing_t > Delta_t: 
-        new_r = ion[0] + ion[1]*Delta_t + a*Delta_t**2/2
-        return [new_r, ion[1]+a*Delta_t, ion[2]]
+        new_x = ion[0] + ion[1]*Delta_t + a*Delta_t**2/2
+        return [new_x, ion[1]+a*Delta_t, ion[2]]
     else:
         crossing_v = ion[1]+a*crossing_t
-        crossing_r = s+ion[0]
+        crossing_x = s+ion[0]
         new_shell = ion[2]+int(np.sign(s)) # -1 if s_inner was used, +1 if s_outer was used
-        return ionmotion([crossing_r, crossing_v, new_shell], Delta_t-crossing_t, Elist)
+        return ionmotion([crossing_x, crossing_v, new_shell], Delta_t-crossing_t, Elist)
 
 # 2.2 Calculating the new ionlist
     
@@ -184,7 +165,7 @@ plt.legend()
 
 ion_numberdensity = []
 for k in range(1, number_of_shells): # Can't calculate at inner- or outermost shell boundary
-    ion_numberdensity += [1/(4*pi*(r_comet*x_k[k])**2)*(ions_per_shell[k]+ions_per_shell[k-1])/(2*x_thickness*r_comet)]
+    ion_numberdensity += [1/(4*pi*(r_comet*x_k[k])**2)*(ions_per_shell[k]+ions_per_shell[k-1])/(2*x_comet*r_comet)]
 
 plt.figure()
 plt.plot(x_k[1:-1], ion_numberdensity, color = 'k')
