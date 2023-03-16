@@ -21,6 +21,7 @@ pi = np.pi
 r_comet = 1e3 # [m]
 v_ion = 6e2 # m/s, all ions are born with 600 m/s radial velocity
 electrontemperature = 10 # eV
+beta = 147.8215 # electron to ion energy ratio: kT/(Mv^2)
 
 # normalization, tbd. 
 u_ion = 1
@@ -35,13 +36,9 @@ number_of_shells = int(1e2)
 x_k = [x_comet+x_comet*k for k in range(number_of_shells+1)] # every equally thick shell has an equal number of ionization events per unit time. Unitless
 x_k_i = x_k[:-int(len(x_k)/2)] # shells in which we consider ionization
 
-nu = 1e6 # ionization frequency [number/s], PLACEHOLDER VALUE. Since this is always multiplied by Del_t it could be replaced for a Mean number of ionizations 
+nu = 1e-6  # ionization frequency [number/s], Vigren2013a (Table 5. 9.2e-7 at solar maximum)
 
 # 1.2 defining functions
-def ionizationevents(Delta_t, nu): 
-    lam = Delta_t*nu
-    return random.gauss(lam, lam**(1/2)) # Poisson of a large lambda is well approximated by a Gaussian
-
 def ioncreation(n, final_k): # creates n ions, equally many in each shell, up to shell number final_k
     n_per_shell = int(n/(final_k+1))
     ilist = []
@@ -61,9 +58,8 @@ def ionshellcreation(n, k): # creates n ions uniformly distributed in the k-th s
 
 # 1.3 Randomly generating the ions and electrons
 # ions
-n_ion = int(ionizationevents(Del_t, nu)) # randomize number of ionization events
+n_ion = 1e3 
 ionlist = ioncreation(n_ion, len(x_k_i)) # Position (sorted) and velocity of all ions.
-# [x[0] for x in ionlist] for a list of only the r's. 
 if n_ion > 1000:
     plt.figure()
     plt.hist([x[0] for x in ionlist], bins = 100, density = True)
@@ -77,11 +73,12 @@ if n_ion > 1000:
 # 1.4 Creating the first potential
 
 Q = 1e25 # [s-1], number of neutrals per second leaving the comet surface
-N0 = Q/(4*np.pi*r_comet**2*v_ion) # [m-3], neutral density at the comet surface
+N_R = Q/(4*np.pi*r_comet**2*v_ion) # [m-3], neutral density at the comet surface
 
-# phi(r) = (nu_0 dt N0 (r/R)**2 k Te/e) # Units wrong? is e needed? Yes because phi is not units of energy, e*phi is.
-phi_at_r_comet = 1e1 # PLACEHOLDER. CALCULATE VIA ANDERS PICTURE ON WHITEBOARD
-phi0 = [phi_at_r_comet*(x_comet/x)**2 for x in x_k] # THIS SHOULD BE IN x_k_i INSTEAD BUT THEN THE LIST IS TOO SHORT.
+# phi(r) = k Te/e * ln(nu_R dt N_R (r/R)**2) # 
+phi_at_comet = 1e-2 # PLACEHOLDER. CALCULATE
+phi0 = [phi_at_comet*(x_comet/x)**2 for x in x_k] # THIS SHOULD BE IN x_k_i INSTEAD BUT THEN THE LIST IS TOO SHORT.
+phi_anders = [-phi_at_comet*x for x in x_k]
 
 #----------------------------------Ion motion----------------------------------
 
@@ -103,8 +100,8 @@ def timeevaluator(v0, a, s, s_alt): # Handles complex roots but requires both s_
 
 # Recursive method
 def ionmotion(ion, Delta_t, Elist): # ion = [r_ion, v_ion, shell_number], rlist is the limits of all shells. Elist is the electric field in all shells
-    print(ion[2])
-    a = Elist[ion[2]]
+    alpha = Elist[ion[2]] # unitless acceleration 
+    a = alpha*beta # rescaled motion equation has both an alpha and a beta in front of the (unitless) time tau. 
     
     s_inner = x_k[ion[2]]-ion[0] # (signed) distance to border of inner shell
     s_outer = x_k[ion[2]+1]-ion[0] # (signed) distance to border of outer shell
@@ -123,37 +120,48 @@ def ionmotion(ion, Delta_t, Elist): # ion = [r_ion, v_ion, shell_number], rlist 
         crossing_v = ion[1]+a*crossing_t
         crossing_x = s+ion[0]
         new_shell = ion[2]+int(np.sign(s)) # -1 if s_inner was used, +1 if s_outer was used
+        if new_shell == -1: # handles inner BC where the ion reaches the comet surface
+            new_shell = 0
+            crossing_v = -crossing_v
+        if new_shell == number_of_shells: # handles outer BC where the ion reaches past space discretization
+            new_shell = number_of_shells-1
         return ionmotion([crossing_x, crossing_v, new_shell], Delta_t-crossing_t, Elist)
+    
+def ioncount(ilist):
+    i_per_shell = []
+    for k in range(number_of_shells):
+        i_per_shell += [[ion[2] for ion in ilist].count(k)]
+    return i_per_shell
+    
+def iondensity(i_per_shell):
+    i_numberdensity = []
+    for k in range(1, number_of_shells):
+        i_numberdensity += [1/(4*pi*(r_comet*x_k[k])**2)*(i_per_shell[k]+i_per_shell[k-1])/(2*x_comet*r_comet)]
+    return i_numberdensity
 
 # 2.2 Calculating the new ionlist
     
-new_ionlist = [ionmotion(x, Del_t, ElectricField(phi0)) for x in ionlist]
+new_ionlist = [ionmotion(ion, Del_t, ElectricField(phi0)) for ion in ionlist]
 new_ionlist.sort() # new line is needed for some reason
 
 plt.figure()
-plt.plot([x[0] for x in ionlist], color='k')
-plt.plot([x[0] for x in new_ionlist], color='c', linestyle=':')
+plt.plot([r_comet*x[0] for x in ionlist], color='k')
+plt.plot([r_comet*x[0] for x in new_ionlist], color='c', linestyle=':')
 plt.title('New vs. old ion position')
 plt.xlabel('Ion index')
 plt.ylabel('Comet distance [m]')
 
 plt.figure()
-plt.plot([x[1] for x in ionlist], color='k')
-plt.plot([x[1] for x in new_ionlist], color='c', linestyle=':')
+plt.plot([v_ion*x[1] for x in ionlist], color='k')
+plt.plot([v_ion*x[1] for x in new_ionlist], color='c', linestyle=':')
 plt.title('New vs. old ion speed')
 plt.xlabel('Ion index')
 plt.ylabel('Ion speed [m/s]')
 
-# Overwrite old ionlist
-# ionlist = new_ionlist
-
 # 2.3 Ion density calculation
 # Count number of ions in each shell 
-new_ions_per_shell = []
-ions_per_shell = []
-for k in range(number_of_shells): 
-    new_ions_per_shell += [[x[2] for x in new_ionlist].count(k)]
-    ions_per_shell += [[x[2] for x in ionlist].count(k)] # Might not be worth it to calculate both. Just do it now for analysis reasons
+new_ions_per_shell = ioncount(new_ionlist)
+ions_per_shell = ioncount(ionlist)
 
 plt.figure()
 plt.plot(new_ions_per_shell, '.', color='C0', label = 'New ion list')
@@ -163,9 +171,7 @@ plt.xlabel('Shell number '+r'$k$')
 plt.ylabel('Number of ions')
 plt.legend()
 
-ion_numberdensity = []
-for k in range(1, number_of_shells): # Can't calculate at inner- or outermost shell boundary
-    ion_numberdensity += [1/(4*pi*(r_comet*x_k[k])**2)*(ions_per_shell[k]+ions_per_shell[k-1])/(2*x_comet*r_comet)]
+ion_numberdensity = iondensity(ions_per_shell)
 
 plt.figure()
 plt.plot(x_k[1:-1], ion_numberdensity, color = 'k')
@@ -173,35 +179,22 @@ plt.title('Ion number density in each shell')
 plt.xlabel('Comet distance [m]')
 plt.ylabel('3D ion number density ' +r'[m$^{-3}$]')
 
+# 2.4 Anders Loop
+andersfunction = [np.sqrt(1+2*(x-1)*phi_at_comet)/(x**2*phi_at_comet) for x in x_k]
+number_of_loops = int(len(x_k_i)/Del_t) # number of loops it takes for ions born at the comet to reach the edge of the ionization
+for j in range(number_of_loops):
+    source_ions = ioncreation(n_ion, len(x_k_i))
+    ionlist = new_ionlist+source_ions
+    ionlist.sort()
+    
+    plt.figure()
+    plt.plot(iondensity(ioncount(ionlist)), '.', color='k')
+    # plt.plot(andersfunction, color='k')
+    plt.title('Number of ions inside each shell')
+    plt.xlabel('Shell number '+r'$k$')
+    plt.ylabel('Number of ions')
+    
+    new_ionlist = [ionmotion(ion, Del_t, ElectricField(phi_anders)) for ion in ionlist]
+
 #------------------Electron Energy evolution and dist. func.-------------------
-
-# Set number density of electrons to equal number density of ions at every (?). Find out what potential is needed for this
-
-
-
-
-
-
-
-#LEGACY BELOW: REMAKE EVERY FUNCTION. POSITION OF ELECTRONS IS DISCRETE? 
-
-# def inv_sq(r):
-#     return 1/r**2
-
-# def ergodic_inv(eps, phi, rvec): # eq. 75. phi is a vector of all phi_x_k. Needed after del_eps is calculated to find new distribution func/new Poisson calc. Or is it?
-#     return C0*sum([(eps-q*phi[k])**(3/2)*rvec[k]**2*delta_vec(rvec) for k in range(len(rvec))])
-
-# def dJdeps(eps, phi, rvec): # eq. 74. rvec is a vector of all x_k up to R(eps)
-#     return 3/2*C0*sum([(eps-q*phi[k])**(1/2)*rvec[k]**2*delta_vec(rvec) for k in range(len(rvec))])
-
-# def dJdphi(eps, phi, rvec, delta_phi): # eq. 76. rvec is a vector of all x_k. 
-#     return C0*3/2*-q*sum([(eps-q*phi[k])**(1/2)*rvec[k]**2*delta_vec(rvec)*del_phi for k in range(len(rvec))])
-
-# def del_phi(new_phi, old_phi): # might be excessive to have as a function. Just have a variable that is overwritten all the time.
-#     return [new_phi[i]-old_phi[i] for i in range(len(new_phi))]
-
-# def del_eps(eps, phi, rvec, delta_phi, del_phi): # eq. 77. all but eps are vectors
-#     return -dJdphi(eps, phi, delta_phi, rvec)/dJdeps(eps, phi, rvec)
-
-
 
