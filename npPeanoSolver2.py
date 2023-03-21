@@ -92,14 +92,27 @@ def timeevaluator(v0, a, s, s_alt): # Handles complex roots but requires both s_
     else:
         return t, s
     
+def arraytimeevaluator(v0, a, s, s_alt): # Handles complex roots but requires both s_inner and s_outer
+    t = np.empty(v0.shape)
+    taylor_ind = (abs(2*a*s)<abs(0.01*v0**2)).nonzero() # abs(2*a*s/v0**2)<0.01
+    t[taylor_ind] = s/v0-a*s**2/(2*v0**3) # 2nd order Taylor expanded
+    elif 1+2*a*s/v0**2 < 0:
+        return(timeevaluator(v0, a, s_alt, s)) # swap order
+    else:
+        t = v0/a*(-1+(1+2*a*s/v0**2)**(1/2))
+    if t < 0: # The wrong root is calculated, calculate the right root from symmetry of the quadratic.
+        return -t-2*v0/a, s
+    else:
+        return t, s
+    
 def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ionmatrix. Each ion is a row in the n-by-3 ionmatrix [x_ion, u_ion, k_ion]
     pos = imatrix[:,0] # position of ions
     vs = imatrix[:,1] # velocity of ions
     ks = imatrix[:,2] # shell number of ions    
     
-    a=np.empty(ks.shape) # make a new acceleration vector (acting on each ion)
-    for k in range(int(x_k_i[-1]-1)):
-        a[ks==k] = Elist[k]*beta
+    a=np.zeros(ks.shape) # make a new acceleration vector (acting on each ion)
+    for k in range(int(x_k[-1]-1)):
+        a[(ks==k).nonzero()] = Elist[k]*beta
     
     # a = Elist*beta # rescaled motion equation has an alpha and a beta infront of the (unitless) time tau.
     
@@ -172,7 +185,7 @@ for j in range(number_of_loops):
     ionmatrix = ionmotion(ionmatrix, Del_t, andersfield)
     source_ions = ioncreation(n_ion, int(x_k_i[-1]))
     ionmatrix = np.concatenate((ionmatrix, source_ions))
-    ionmatrix = ionmatrix[ionmatrix[:,0].argsort()] # sort after first column
+    ionmatrix = ionmatrix[ionmatrix[:,2].argsort()] # sort after first column
     counter+=1
     
     # icount = ioncount(ionmatrix)
