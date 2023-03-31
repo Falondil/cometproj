@@ -25,13 +25,13 @@ Del_t = 0.1 # timestep between ionization bursts, unitless. 1 is time for unacce
 #-----------------------------------Creation-----------------------------------
 
 # 1.1 General parameter choices
-number_of_shells = int(1e2)
-x_k = np.arange(x_comet, number_of_shells+x_comet, dtype=int) # every equally thick shell has an equal number of ionization events per unit time. Unitless
+number_of_boundaries = int(1e2)
+x_k = np.arange(x_comet, number_of_boundaries+x_comet, dtype=int) # every equally thick shell has an equal number of ionization events per unit time. Unitless
 x_k_i = x_k[:-int(len(x_k)/2)] # shells in which we consider ionization
 
 # 1.2 defining functions
 def ioncreation(n, final_k): # creates n ions, equally many in each shell, up to shell number final_k
-    n_per_shell = int(n/(final_k+1)) # this is rounded down. n_per_shell * number_of_shells <= n
+    n_per_shell = int(n/(final_k+1)) # this is rounded down. n_per_shell * number_of_boundaries <= n
     ilist = np.empty((0, 3)) # empty 0-by-3 matrix
     for k in range(final_k+1):
         ilist = np.concatenate((ilist, ionshellcreation(n_per_shell, k)), axis=0)
@@ -51,7 +51,7 @@ def ionshellcreation(n, k): # creates n ions uniformly distributed in the k-th s
     
 # 1.3 Randomly generating the ions and electrons
 # ions
-n_ion = 1e3 
+n_ion = 1e3
 ionmatrix = ioncreation(n_ion, int(x_k_i[-1])) # Position (sorted) and velocity of all ions.
 if n_ion > 1000:
     plt.figure()
@@ -78,10 +78,6 @@ phi_anders = -phi_at_comet*x_k # numpy array
 # 2.1 Function definitions
 def ElectricField(philist): # calculates the unitless electric field
     return -(philist[1:]-philist[:-1])/(x_k[1:]-x_k[:-1]) # ElectricField list has one less element than phi. (Number of shells between points = Number of points - 1)
-    
-def new_shell_ind(ks): # Calculates the ion index number of each new spatial shell
-    ks = np.insert(ks, 0, -1) # insert the value -1 before the first ion shell number so that the return indices match the input array. 
-    return(ks[1:]-ks[:-1]==1).nonzero()
 
 def arraytimeevaluator(v0, a, s, s_alt): # Calculates the crossing times for an array of initial velocities, accelerations and the two nearest shell boundary distances 
     t = np.empty(v0.shape)
@@ -108,21 +104,24 @@ def arraytimeevaluator(v0, a, s, s_alt): # Calculates the crossing times for an 
     t[negative_ind] = -t[negative_ind]-2*v0[negative_ind]/a[negative_ind]
 
     return t, s_used
+
+def ioncount(imatrix): # counts the number of ions inside each shell number k
+    ks = imatrix[:,2]
+    counts = np.empty((number_of_boundaries,), dtype=int)
+    for k in range(number_of_boundaries):
+        counts[k] = np.count_nonzero(ks==k)
+    return counts
     
 def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ionmatrix. Each ion is a row in the n-by-3 ionmatrix [x_ion, u_ion, k_ion]
     pos = imatrix[:,0] # position of ions
     vs = imatrix[:,1] # velocity of ions
     ks = imatrix[:,2].astype(int) # shell number of ions, astype may be unnecessary
     
-    a = np.zeros(ks.shape) # make a new acceleration vector (acting on each ion)
-    # nsi = new_shell_ind(ks)
-    # a[nsi] = Elist*beta # Sets the acceleration of the FIRST ion in each shell to the right value. Slight problem here with array length mismatch. FIX IT.
-    # Make all zero elements of a take the value of the acceleration above it. WRITE A LINE FOR THIS
-    a += Elist[0]*beta # PLACEHOLDER. can do this NOW because its the same everywhere 
-    # for k in range(int(x_k[-1]-1)):
-    #     a[(ks==k).nonzero()] = Elist[k]*beta
-    
-    # a = Elist*beta # rescaled motion equation has an alpha and a beta infront of the (unitless) time tau.
+    # counts = ioncount(imatrix) # count number of ions in each shell
+    # a = np.repeat(Elist, counts[:len(Elist)]) # calculate the electric field that each ion experiences (repeating the value of the Elist elements as many times as there are ions in each shell)
+    # a = a*beta # rescaled motion equation has beta factor infront of (unitless) time
+    a = np.zeros(ks.shape)
+    a += Elist[0]*beta # only works NOW
     
     pos_in_shell = pos%1 # calculates position inside each shell from [0, 1)
     s_inner = -pos_in_shell # distance (negative) to inner shell for each ion
@@ -149,7 +148,7 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
     vs[non_crossing_ind] = vs[non_crossing_ind] + a[non_crossing_ind]*Delta_t[non_crossing_ind]
     
     # calculate new position and velocity and shell number for ions where crossing happens
-    pos[crossing_ind] = 1e-6+pos[crossing_ind] + vs[crossing_ind]*crossing_t[crossing_ind] + a[crossing_ind]*crossing_t[crossing_ind]**2/2
+    pos[crossing_ind] = np.sign(s[crossing_ind])*1e-6+pos[crossing_ind] + vs[crossing_ind]*crossing_t[crossing_ind] + a[crossing_ind]*crossing_t[crossing_ind]**2/2
     vs[crossing_ind] = vs[crossing_ind] + a[crossing_ind]*crossing_t[crossing_ind]
     ks[crossing_ind] = ks[crossing_ind]+np.sign(s[crossing_ind])
     
@@ -158,8 +157,8 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
     ks[IBC_ind] = 0 
     vs[IBC_ind] = -vs[IBC_ind] # bounce at comet surface
     
-    OBC_ind = (ks>=number_of_shells).nonzero()
-    ks[OBC_ind] = number_of_shells-1 # The outermost shell has infinite extent for now. Largest shell number allowed is number_of_shells-1
+    OBC_ind = (ks>=number_of_boundaries).nonzero()
+    ks[OBC_ind] = number_of_boundaries-1 # The outermost shell has infinite extent for now. Largest shell number allowed is number_of_boundaries-1
     
     # create a new matrix of ions
     imatrixnew = np.array(list(zip(pos, vs, ks))) # recombine position, velocity and shell number 
@@ -174,20 +173,6 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
     
     return imatrixnew 
 
-def ioncount(imatrix):
-    ks = imatrix[:,2]
-    counts = np.empty((number_of_shells,))
-    for k in range(number_of_shells):
-        counts[k] = np.count_nonzero(ks==k)
-    return counts
-
-def ioncount2(imatrix):
-    ks = imatrix[:,2]
-    counts = np.empty((number_of_shells,))
-    for k in range(number_of_shells):
-        counts[k] = np.count_nonzero(ks==k)
-    return counts
-
 def iondensity(i_per_shell):
     i_numberdensity = 1/(4*pi*(r_comet*x_k[1:])**2)*(i_per_shell[1:]+i_per_shell[:-1])/(2*x_comet*r_comet)
     return i_numberdensity
@@ -197,13 +182,17 @@ number_of_loops = int(len(x_k_i)/Del_t)
 counter = 0
 andersfield = ElectricField(phi_anders)
 for j in range(number_of_loops):
-    remaining_time = np.zeros(ionmatrix[:,0].shape) # array for the remaining time for each ion
-    remaining_time += Del_t
+    remaining_time = np.repeat(Del_t, ionmatrix[:,0].shape) # create a remaining time matrix for prior ions
+    source_ions = ioncreation(n_ion, int(x_k_i[-1])) # birth new ions
+    source_remaining_time = np.random.uniform(0, Del_t, source_ions[:,0].shape) # add a uniform random time [0, Del_t) remaining for the newly born ions (Reflects the fact that the ions can be born any time during the time step)
+    
+    # concatenate prior ions and recently born ions
+    ionmatrix = np.concatenate((ionmatrix, source_ions)) # add new ions to ion matrix
+    remaining_time = np.concatenate((remaining_time, source_remaining_time))
+    
     ionmatrix = ionmotion(ionmatrix, remaining_time, andersfield)
-    source_ions = ioncreation(n_ion, int(x_k_i[-1]))
-    ionmatrix = np.concatenate((ionmatrix, source_ions))
     ionmatrix = ionmatrix[ionmatrix[:,2].argsort()] # sort after column
-    counter+=1
+    counter+=1 # increment the number of loops performed
     
     icount = ioncount(ionmatrix)
     plt.figure()
@@ -218,3 +207,5 @@ for j in range(number_of_loops):
     # plt.title('Number density of ions')
     # plt.xlabel('Shell number '+r'$k$')
     # plt.ylabel('Number density [m'+'$^{-3}$]')
+
+    # plt.plot(idensity[:-1]*x_k[1:-1]**2/(x_k[1:-1]-1), '.', color='k')
