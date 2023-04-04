@@ -71,7 +71,7 @@ Q = 1e25 # [s-1], number of neutrals per second leaving the comet surface
 N_R = Q/(4*np.pi*r_comet**2*v_n) # [m-3], neutral density at the comet surface
 
 # phi(r) = k Te/e * ln(nu_R dt N_R (r/R)**2) # 
-phi_at_comet = 1e-4 # PLACEHOLDER. CALCULATE
+phi_at_comet = 1e-2 # PLACEHOLDER. CALCULATE
 # phi0 = FIX THIS
 phi_anders = -phi_at_comet*x_k # numpy array
 
@@ -121,9 +121,6 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
     
     counts = ioncount(imatrix) # count number of ions in each shell
     a = np.repeat(Elist, counts[:len(Elist)]) # calculate the electric field that each ion experiences (repeating the value of the Elist elements as many times as there are ions in each shell)
-    a = a*beta # rescaled motion equation has beta factor infront of (unitless) time
-    # a = np.zeros(ks.shape)
-    # a += Elist[0]*beta # only works NOW
     
     pos_in_shell = pos%1 # calculates position inside each shell from [0, 1)
     s_inner = -pos_in_shell # distance (negative) to inner shell for each ion
