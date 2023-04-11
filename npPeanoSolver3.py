@@ -7,6 +7,7 @@ Created on Mon Mar 20 09:45:49 2023
 
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.special import erf
 
 # constants
 pi = np.pi
@@ -15,6 +16,8 @@ v_n = 6e2 # m/s, all ions are born with 600 m/s radial velocity
 electrontemperature = 10 # eV
 beta = 147.8215 # electron to ion energy ratio: kT/(Mv^2)
 nu = 1e-6  # ionization frequency [number/s], Vigren2013a (Table 5. 9.2e-7 at solar maximum)
+Q = 1e25 # [s-1], number of neutrals per second leaving the comet surface
+N_R = Q/(4*np.pi*r_comet**2*v_n) # [m-3], neutral density at the comet surface
 
 # normalization, tbd. 
 u_n = 1
@@ -31,8 +34,8 @@ x_k = np.arange(x_comet, number_of_boundaries+x_comet, dtype=int) # every equall
 x_k_i = x_k[:-int(len(x_k)/2)] # shells in which we consider ionization
 
 # 1.2 defining functions
-def ioncreation(n, final_k): # creates n ions, equally many in each shell, up to shell number final_k
-    n_per_shell = int(n/(final_k+1)) # this is rounded down. n_per_shell * number_of_boundaries <= n
+def ioncreation(n_per_shell, final_k): # creates n ions, equally many in each shell, up to shell number final_k
+    # n_per_shell = int(n/(final_k+1)) # this is rounded down.
     ilist = np.empty((0, 3)) # empty 0-by-3 matrix
     for k in range(final_k+1):
         ilist = np.concatenate((ilist, ionshellcreation(n_per_shell, k)), axis=0)
@@ -49,13 +52,27 @@ def ionshellcreation(n, k): # creates n ions uniformly distributed in the k-th s
         x_ion.reshape((n,1)) # make the x_ion array a column vector
         ilist[:, 0] = x_ion # 0th column stores position
         return ilist
-    
-# 1.3 Randomly generating the ions and electrons
-# ions
-n_ion = 3*number_of_shells 
 
-ionmatrix = ioncreation(n_ion, int(x_k_i[-1])) # Position (sorted) and velocity of all ions.
-if n_ion > 1000:
+# 1.3 Creating the first potential
+
+# phi(r) = k Te/e * ln(nu_R dt N_R (r/R)**2) # 
+phi_at_comet = 1e-2 # PLACEHOLDER. CALCULATE
+initial_phi = [phi_at_comet*(x_comet/x)**2 if x in x_k_i else phi_at_comet*(x_comet/x_k_i[-1])**2 for x in x_k]
+# ask Anders
+
+phi_anders = -phi_at_comet*x_k # numpy array
+phi_anders_log = -phi_at_comet*np.log(x_k)
+
+# 1.4 Randomly generating the ions and electrons
+# ions
+n_per_shell = 3 # number of ions generated in each shell
+
+n_ion_sim = n_per_shell*len(x_k_i) # count the number of simulated ions
+n_ion_real = nu*(r_comet/v_n)**2*Del_t*Q*(x_k_i[-1]-1) # count the number of ions that they represent
+realsimratio = n_ion_real/n_ion_sim # the number of real ions each simulated ion represents
+
+ionmatrix = ioncreation(n_per_shell, int(number_of_shells)) # Position (sorted) and velocity of all ions.
+if n_ion_sim > 1000:
     plt.figure()
     plt.hist(ionmatrix[:, 0], bins = 100, density = True)
     plt.hist(ionmatrix[:, 0], bins = 10, density = True, fill = False)
@@ -64,16 +81,21 @@ if n_ion > 1000:
     plt.title('Radial distribution of randomly generated ions')
     
 # electrons 
+excess = 10 # how many electrontemperatures we consider before truncation
+energies = np.linspace(-excess*electrontemperature, excess*electrontemperature, 100) # energy discretization
 
-# 1.4 Creating the first potential
+# calculate df
+# V0 = # might want to be a function def V0(phi) that returns V0 for all energy values using the given phi.
+# U = # numerator of df(eps) 
+# L = # denominator of df(eps)
 
-Q = 1e25 # [s-1], number of neutrals per second leaving the comet surface
-N_R = Q/(4*np.pi*r_comet**2*v_n) # [m-3], neutral density at the comet surface
+# calculate the B integral 
+# B = integral(U/L*V0) # can be calculated prior to ionmotion
 
-# phi(r) = k Te/e * ln(nu_R dt N_R (r/R)**2) # 
-phi_at_comet = 1e-2 # PLACEHOLDER. CALCULATE
-# phi0 = FIX THIS
-phi_anders = -phi_at_comet*x_k # numpy array
+# calculate Z_k
+# Z_k = sum(f0/(2*V0)*delta_energy) # cannot be calculated until f0 is determined from prior ionmotion and potential calculation.
+
+# 
 
 #----------------------------------Ion motion----------------------------------
 
@@ -184,12 +206,12 @@ def iondensity(i_per_shell):
     return i_numberdensity
 
 # 2.4 Anders Loop. Supplementary, move to last. 
-number_of_loops = int(len(x_k_i)/Del_t)
+number_of_loops = int(len(x_k_i)/(u_n*Del_t))
 counter = 0
-andersfield = ElectricField(phi_anders)
+andersfield = ElectricField(phi_anders_log)
 for j in range(number_of_loops):
     remaining_time = np.repeat(Del_t, ionmatrix[:,0].shape) # create a remaining time matrix for prior ions
-    source_ions = ioncreation(n_ion, int(x_k_i[-1])) # birth new ions
+    source_ions = ioncreation(n_per_shell, int(x_k_i[-1])) # birth new ions
     source_remaining_time = np.random.uniform(0, Del_t, source_ions[:,0].shape) # add a uniform random time [0, Del_t) remaining for the newly born ions (Reflects the fact that the ions can be born any time during the time step)
     
     # concatenate prior ions and recently born ions
@@ -200,20 +222,22 @@ for j in range(number_of_loops):
     ionmatrix = ionmatrix[ionmatrix[:,2].argsort()] # sort after column
     counter+=1 # increment the number of loops performed
     
-    # icount = ioncount(ionmatrix)
+    icount = ioncount(ionmatrix) # calculate number of ions in each shell
+    
+    idensity = iondensity(icount)
+    plt.figure()
+    plt.title('Number density of ions')
+    plt.xlabel('Shell number '+r'$k$')
+    plt.ylabel('Number density [m'+'$^{-3}$]')
+    # andersprop = ((1+2*(x_k[1:-1]-1)*phi_at_comet)**(1/2)-1)/(x_k[1:-1]**2*phi_at_comet) # for linear potential
+    andersprop = 1/x_k[1:-1]*(np.pi/2)**(1/2)*np.exp(1/(2*phi_at_comet))*(erf(((1+2*phi_at_comet*np.log(x_k[1:-1]))/(2*phi_at_comet))**(1/2)) - erf(1/(2*phi_at_comet)**(1/2)))# for logarithmic potential
+    plt.plot(idensity/andersprop, '.', color='k')
+    
     # plt.figure()
     # plt.plot(icount[:-1], '.', color='k')
     # plt.title('Number of ions inside each shell')
     # plt.xlabel('Shell number '+r'$k$')
     # plt.ylabel('Number of ions')
-    
-    idensity = iondensity(ioncount(ionmatrix))
-    plt.figure()
-    plt.title('Number density of ions')
-    plt.xlabel('Shell number '+r'$k$')
-    plt.ylabel('Number density [m'+'$^{-3}$]')
-    andersprop = ((1+2*(x_k[1:-1]-1)*phi_at_comet)**(1/2)-1)/(x_k[1:-1]**2*phi_at_comet)
-    plt.plot(idensity/andersprop, '.', color='k')
     
     # CALCULATE THIS TO CHECK DEGREE OF MONOMIAL RELATION BETWEEN COUNTS AND CENTRAL X_K OF THE SHELL
     # (np.log(icount[45])-np.log(icount[5]))/(np.log(x_k[45]+1/2)-np.log(x_k[5]+1/2)) # can skip or include
