@@ -70,7 +70,7 @@ n_ion_sim = n_per_shell # count the number of simulated ions created per shell e
 n_ion_real = nu*(r_comet/v_n)**2*Del_t*Q # count the number of ions that they represent
 realsimratio = n_ion_real/n_ion_sim # the number of real ions each simulated ion represents
 
-ionmatrix = ioncreation(n_per_shell, int(number_of_shells)) # Position (sorted) and velocity of all ions.
+ionmatrix = ioncreation(n_per_shell, x_k_i[-1]) # Position (sorted) and velocity of all ions.
 if n_ion_sim > 1000:
     plt.figure()
     plt.hist(ionmatrix[:, 0], bins = 100, density = True)
@@ -92,29 +92,42 @@ def V(eps, phi): # Calculates unitless sqrt of electron kinetic energy. Either e
 def Vmatrix(epslist, philist): # Calculates matrix of values of V. epslist and philist are both 1D numpy arrays
     phi, eps = np.meshgrid(philist, epslist, sparse=True) # creates mesh of phi, eps values
     return V(eps, phi) # returns 2D array where Vmat[i,k] = V(epslist[i], philist[k])
-
-def Fper2V(F0, V0, deps): # Calculates integrand value for integral corresponding to change in unitless potential
-    return 2*pi*2**(1/2)*F0/V0*deps
     
 def UI(V0prim): # upper integrand component for the change in electron density owing to creation of new electrons.
     # V0prim = V0[:len(x_k_i)] # all V where ionization occurs
     return V0prim*np.exp(-(V0prim/beta)**2)*x_thickness
     
 def LI(V0): # lower integrand component for the change in electron density owing to creation of new electrons.
-    return V0*x_k*x_thickness
+    return V0*x_k**2*x_thickness
+
+def UperL(Vmat): # Integral fraction for calculating the change in electron density owing to creation of new electrons    
+    V0prim = Vmat[:, :len(x_k_i)] # V0 in region where ionization occurs
+    U = np.sum(UI(V0prim), axis=1) # compute upper integral, x axis = 1
+    L = np.sum(LI(Vmat), axis=1) # compute lower integral, x axis = 1
+    Ifrac = np.zeros_like(U)
+    nonzero_ind = L.nonzero()
+    Ifrac[nonzero_ind] = U[nonzero_ind]/L[nonzero_ind]
+    return Ifrac
     
-def UperL(V0): # Integral fraction for calculating the change in electron density owing to creation of new electrons    
-    if np.any(V0): # check if any V0 is nonzero
-        V0prim = V0[:len(x_k_i)] # V0 in region where ionization occurs
-        U = sum(UI(V0prim)) # compute upper integral
-        L = sum(LI(V0)) # compute lower integral
-        return U/L
-    else: # both U and L will be 0 and division by zero occurs
-        return 0
-        
-def Itilde(Vmat): # Integrand of full integral expression for calculating the change in electron density owing to creation of new electrons
-    deps*???
-    return 
+def Itilde(Vmat): # Integral expression for calculating the change in electron density owing to creation of new electrons
+    Ifrac = UperL(Vmat)
+    transVmat = np.matrix.transpose(Vmat) # Vmat transposed so that the matrix multiplication with Ifrac computes the integral over eps.
+    return transVmat@Ifrac*deps
+
+def Fper2V(F0, Vmat): # Calculates integral corresponding to change in unitless potential. (Denominator of RHS in expression for del_phi)
+    mat = np.divide(F0*deps, Vmat, out=np.zeros_like(Vmat), where=Vmat!=0) # matrix representation [eps, x] of integrand
+    ret = np.sum(2*pi*2**(1/2)*mat, axis=0) # approximate integral via summation over eps axis = 0
+    return ret
+
+def delphi(Vmat, F0, del_density): # calculates the change in unitless potential from one timestep to the next
+    numer = del_density-n_per_shell/(4*(pi*beta)**(3/2))*Itilde(Vmat) # numerator
+    denom = Fper2V(F0, Vmat) # denominator
+    ret = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0) # denominator/numerator if numerator != 0 else 0.
+    return ret
+    
+def F1(V1, wide_density): # calculates the unitless distribution function by solving for V matrix
+    new_F, res, rank, sing = np.linalg.lstsq(V1, wide_density, rcond=None) # V1 is square matrix, wide_density has a value for all x_k (including inner and outer edge points)
+    return new_F
 
 #----------------------------------Ion motion----------------------------------
 
@@ -154,7 +167,7 @@ def ioncount(imatrix): # counts the number of ions inside each shell number k
     for k in range(number_of_shells):
         counts[k] = np.count_nonzero(ks==k)
     return counts
-    
+   
 def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ionmatrix. Each ion is a row in the n-by-3 ionmatrix [x_ion, u_ion, k_ion]
     pos = imatrix[:,0] # position of ions
     vs = imatrix[:,1] # velocity of ions
@@ -212,13 +225,9 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
         imatrixnew[crossing_ind] = ionmotion(imatrixnew[crossing_ind], Delta_t[crossing_ind]-crossing_t[crossing_ind], Elist)
     
     # use this line if you want to delete ions which reach outer boundary. This OBC_ind is now accounted for in two ways which should be inefficient, reconsider.
-    imatrixnew = np.delete(imatrixnew, OBC_ind, axis=0)
+    # imatrixnew = np.delete(imatrixnew, OBC_ind, axis=0)
     
     return imatrixnew 
-
-# def iondensity(i_per_shell): Legacy and wrong
-#     i_numberdensity = 1/(4*pi*(r_comet*x_k[1:])**2)*(i_per_shell[1:]+i_per_shell[:-1])/(2*x_comet*r_comet)
-#     return i_numberdensity
 
 def iondensity(i_per_shell): # calculates unitless density of simulated ions
     i_numberdensity = (i_per_shell[1:]+i_per_shell[:-1])/(4/3*pi*(x_k[2:]**3-x_k[:-2]**3))
@@ -227,36 +236,76 @@ def iondensity(i_per_shell): # calculates unitless density of simulated ions
 # 2.4 Anders Loop. Supplementary, move to last. 
 number_of_loops = int(len(x_k_i)/(u_n*Del_t))
 counter = 0
-andersfield = ElectricField(phi_anders_log)
-for j in range(number_of_loops):
+
+# First timestep values
+old_density = np.zeros_like(x_k) # 0 for all values of x_k
+old_phi = phi_anders # start with this guess
+old_F = np.zeros_like(eps) # 0 for all values of eps_i
+
+for j in range(number_of_loops): # Divide this into Scheme numbering
+    # 1. Birth ions
     remaining_time = np.repeat(Del_t, ionmatrix[:,0].shape) # create a remaining time matrix for prior ions
-    source_ions = ioncreation(n_per_shell, int(x_k_i[-1])) # birth new ions
+    source_ions = ioncreation(n_per_shell, x_k_i[-1]) # birth new ions
     source_remaining_time = np.random.uniform(0, Del_t, source_ions[:,0].shape) # add a uniform random time [0, Del_t) remaining for the newly born ions (Reflects the fact that the ions can be born any time during the time step)
     
     # concatenate prior ions and recently born ions
     ionmatrix = np.concatenate((ionmatrix, source_ions)) # add new ions to ion matrix
     remaining_time = np.concatenate((remaining_time, source_remaining_time))
     
-    ionmatrix = ionmotion(ionmatrix, remaining_time, andersfield)
+    # 2. Calculate the motion of ions
+    Efield = ElectricField(old_phi) # calculate electric field from potential
+    ionmatrix = ionmotion(ionmatrix, remaining_time, Efield)
     ionmatrix = ionmatrix[ionmatrix[:,2].argsort()] # sort after column
-    counter+=1 # increment the number of loops performed
     
+    # 3. Calculate ion densities
     icount = ioncount(ionmatrix) # calculate number of ions in each shell
+    idensity = iondensity(icount) # unitless iondensity (Does not contain inner or outer edgepoints)
     
-    idensity = iondensity(icount)
-    plt.figure()
-    plt.title('Number density of ions')
-    plt.xlabel('Shell number '+r'$k$')
-    plt.ylabel('Number density [m'+'$^{-3}$]')
-    # andersprop = ((1+2*(x_k[1:-1]-1)*phi_at_comet)**(1/2)-1)/(x_k[1:-1]**2*phi_at_comet) # for linear potential
-    andersprop = 1/x_k[1:-1]*(pi/2)**(1/2)*np.exp(1/(2*phi_at_comet))*(erf(((1+2*phi_at_comet*np.log(x_k[1:-1]))/(2*phi_at_comet))**(1/2)) - erf(1/(2*phi_at_comet)**(1/2)))# for logarithmic potential
-    plt.plot(idensity/andersprop, '.', color='k')
+    density_w_inner = np.concatenate((np.array([idensity[0]]), idensity)) # repeats the innermost calculated density value to approximate density at comet)
+    new_density = np.append(density_w_inner, idensity[-1]) # repeats the outermost calculated density value to approximate outer boundary density
+    
+    del_density = new_density - old_density 
+    
+    # 4. Use electrons to solve for change in potential
+    Vmat = Vmatrix(eps, old_phi)
+    del_phi = delphi(Vmat, old_F, del_density)
+    
+    # 5. Calculate new potential
+    new_phi = old_phi + del_phi
+    
+    # 6. calculate the new distribution function
+    new_Vmat = Vmatrix(eps, new_phi)
+    new_F = F1(new_Vmat, new_density) 
+    
+    # 7. Plotting
+    # plt.figure()
+    # plt.title('Number density of ions')
+    # plt.xlabel('Shell number '+r'$k$')
+    # plt.ylabel('Number density [R'+'$_{C}^{-3}$]')
+    # plt.plot(x_k, new_density, '.', color='k')
     
     # plt.figure()
-    # plt.plot(icount[:-1], '.', color='k')
     # plt.title('Number of ions inside each shell')
     # plt.xlabel('Shell number '+r'$k$')
     # plt.ylabel('Number of ions')
+    # plt.plot(icount[:-1], '.', color='k')
+    
+    plt.figure()
+    plt.title('Electron distribution function')
+    plt.xlabel('Electron energy')
+    plt.ylabel('F')
+    plt.plot(eps, new_F, '.', color='k')
+    
+    # 8. Overwrite all old values
+    old_density = new_density
+    old_phi = new_phi
+    old_F = new_F
+    
+    counter+=1 # increment the number of loops performed
     
     # CALCULATE THIS TO CHECK DEGREE OF MONOMIAL RELATION BETWEEN COUNTS AND CENTRAL X_K OF THE SHELL
     # (np.log(icount[45])-np.log(icount[5]))/(np.log(x_k[45]+1/2)-np.log(x_k[5]+1/2)) # can skip or include
+    
+    # andersprop = ((1+2*(x_k[1:-1]-1)*phi_at_comet)**(1/2)-1)/(x_k[1:-1]**2*phi_at_comet) # for linear potential
+    # # andersprop = 1/x_k[1:-1]*(pi/2)**(1/2)*np.exp(1/(2*phi_at_comet))*(erf(((1+2*phi_at_comet*np.log(x_k[1:-1]))/(2*phi_at_comet))**(1/2)) - erf(1/(2*phi_at_comet)**(1/2)))# for logarithmic potential
+    # plt.plot(idensity/andersprop, '.', color='k')
