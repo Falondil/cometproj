@@ -7,6 +7,7 @@ Created on Mon Mar 20 09:45:49 2023
 
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 from scipy.special import erf
 
 # constants
@@ -81,7 +82,7 @@ if n_ion_sim > 1000:
     
     
 # 1.5 Electrons
-excess = 2*electrontemperature # how many electrontemperatures we consider before truncation
+excess = 2*electrontemperature*beta # how many electrontemperatures we consider before truncation
 eps, deps = np.linspace(-excess, excess, number_of_boundaries, retstep=True) # centered on 0? 
 
 # Function definitions
@@ -210,7 +211,7 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
     ks[IBC_ind] = 0 
     vs[IBC_ind] = -vs[IBC_ind] # bounce at comet surface
     
-    OBC_ind = (ks>=number_of_shells).nonzero()
+    OBC_ind = (ks>=number_of_shells).nonzero() 
     ks[OBC_ind] = number_of_shells-1 # The outermost shell has infinite extent for now. Largest shell number allowed is number_of_boundaries-1
 
     # create a new matrix of ions
@@ -224,22 +225,22 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
         # print("imatrixnew[crossing_ind] = ", imatrixnew[crossing_ind])
         imatrixnew[crossing_ind] = ionmotion(imatrixnew[crossing_ind], Delta_t[crossing_ind]-crossing_t[crossing_ind], Elist)
     
-    # use this line if you want to delete ions which reach outer boundary. This OBC_ind is now accounted for in two ways which should be inefficient, reconsider.
-    # imatrixnew = np.delete(imatrixnew, OBC_ind, axis=0)
-    
     return imatrixnew 
 
 def iondensity(i_per_shell): # calculates unitless density of simulated ions
     i_numberdensity = (i_per_shell[1:]+i_per_shell[:-1])/(4/3*pi*(x_k[2:]**3-x_k[:-2]**3))
     return i_numberdensity
 
-# 2.4 Anders Loop. Supplementary, move to last. 
-number_of_loops = int(len(x_k_i)/(u_n*Del_t))
+# 2.4 Loop
+number_of_loops = 2*int(len(x_k_i)/(u_n*Del_t))
+simulation_time = r_comet/v_n*Del_t*number_of_loops # calculate how long a time (in seconds) that is simulated
+
+start_time = time.time()
 counter = 0
 
 # First timestep values
 old_density = np.zeros_like(x_k) # 0 for all values of x_k
-old_phi = phi_anders # start with this guess
+old_phi =  phi_anders # start with this guess
 old_F = np.zeros_like(eps) # 0 for all values of eps_i
 
 for j in range(number_of_loops): # Divide this into Scheme numbering
@@ -256,6 +257,8 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     Efield = ElectricField(old_phi) # calculate electric field from potential
     ionmatrix = ionmotion(ionmatrix, remaining_time, Efield)
     ionmatrix = ionmatrix[ionmatrix[:,2].argsort()] # sort after column
+    OBC_ind = (ionmatrix[:,0]>x_k[-1]).nonzero() # find all ions passing outside the system
+    ionmatrix = np.delete(ionmatrix, OBC_ind, axis=0) # and delete them
     
     # 3. Calculate ion densities
     icount = ioncount(ionmatrix) # calculate number of ions in each shell
@@ -280,15 +283,22 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # 7. Plotting
     # plt.figure()
     # plt.title('Number density of ions')
-    # plt.xlabel('Shell number '+r'$k$')
+    # plt.xlabel('Distance from comet center [R'+'$_{C}$]')
     # plt.ylabel('Number density [R'+'$_{C}^{-3}$]')
     # plt.plot(x_k, new_density, '.', color='k')
     
     # plt.figure()
     # plt.title('Number of ions inside each shell')
-    # plt.xlabel('Shell number '+r'$k$')
+    # plt.xlabel('Distance from comet center [R'+'$_{C}$]')
     # plt.ylabel('Number of ions')
-    # plt.plot(icount[:-1], '.', color='k')
+    # plt.plot(x_k, icount, '.', color='k')
+    
+    # plt.figure()
+    # plt.title('Potential')
+    # plt.xlabel('Distance from comet center [R'+'$_{C}$]')
+    # plt.ylabel('Potential')
+    # plt.plot(x_k, new_phi,'.', color='k')
+    # plt.plot(x_k, phi_anders, '-', color = 'C0')
     
     plt.figure()
     plt.title('Electron distribution function')
@@ -300,7 +310,6 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     old_density = new_density
     old_phi = new_phi
     old_F = new_F
-    
     counter+=1 # increment the number of loops performed
     
     # CALCULATE THIS TO CHECK DEGREE OF MONOMIAL RELATION BETWEEN COUNTS AND CENTRAL X_K OF THE SHELL
@@ -309,3 +318,9 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # andersprop = ((1+2*(x_k[1:-1]-1)*phi_at_comet)**(1/2)-1)/(x_k[1:-1]**2*phi_at_comet) # for linear potential
     # # andersprop = 1/x_k[1:-1]*(pi/2)**(1/2)*np.exp(1/(2*phi_at_comet))*(erf(((1+2*phi_at_comet*np.log(x_k[1:-1]))/(2*phi_at_comet))**(1/2)) - erf(1/(2*phi_at_comet)**(1/2)))# for logarithmic potential
     # plt.plot(idensity/andersprop, '.', color='k')
+    
+end_time = time.time()
+
+elapsed_time = end_time-start_time
+print('Simulated time: '+str(simulation_time)+' s')
+print('Elapsed time: '+str(elapsed_time)+' s')
