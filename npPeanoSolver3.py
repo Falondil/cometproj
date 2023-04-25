@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 from scipy.special import erf
+from scipy.optimize import nnls
 
 # constants
 pi = np.pi
@@ -83,6 +84,10 @@ if n_ion_sim > 1000:
     
 # 1.5 Electrons
 excess = 2*electrontemperature*beta # how many electrontemperatures we consider before truncation
+epsneg, negdeps = np.linspace(-excess, 0, int(number_of_boundaries/2), retstep = True)
+epspos, posdeps = np.linspace(0, excess, number_of_boundaries, retstep = True)
+eps = np.concatenate((np.delete(epsneg, -1), epspos))
+
 eps, deps = np.linspace(-excess, excess, number_of_boundaries, retstep=True) # centered on 0? 
 
 # Function definitions
@@ -126,8 +131,12 @@ def delphi(Vmat, F0, del_density): # calculates the change in unitless potential
     ret = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0) # denominator/numerator if numerator != 0 else 0.
     return ret
     
+# def F1(V1, wide_density): # calculates the unitless distribution function by solving for V matrix
+#     new_F, res, rank, sing = np.linalg.lstsq(V1, wide_density, rcond=None) # V1 is square matrix, wide_density has a value for all x_k (including inner and outer edge points)
+#     return new_F
+
 def F1(V1, wide_density): # calculates the unitless distribution function by solving for V matrix
-    new_F, res, rank, sing = np.linalg.lstsq(V1, wide_density, rcond=None) # V1 is square matrix, wide_density has a value for all x_k (including inner and outer edge points)
+    new_F, res = nnls(V1, wide_density) # V1 is square matrix, wide_density has a value for all x_k (including inner and outer edge points)
     return new_F
 
 #----------------------------------Ion motion----------------------------------
@@ -232,7 +241,7 @@ def iondensity(i_per_shell): # calculates unitless density of simulated ions
     return i_numberdensity
 
 # 2.4 Loop
-number_of_loops = 2*int(len(x_k_i)/(u_n*Del_t))
+number_of_loops = int(len(x_k_i)/(u_n*Del_t))
 simulation_time = r_comet/v_n*Del_t*number_of_loops # calculate how long a time (in seconds) that is simulated
 
 start_time = time.time()
@@ -241,7 +250,7 @@ counter = 0
 # First timestep values
 old_density = np.zeros_like(x_k) # 0 for all values of x_k
 old_phi =  phi_anders # start with this guess
-old_F = np.zeros_like(eps) # 0 for all values of eps_i
+old_F = np.random.rand(len(eps)) # 0 for all values of eps_i
 
 for j in range(number_of_loops): # Divide this into Scheme numbering
     # 1. Birth ions
