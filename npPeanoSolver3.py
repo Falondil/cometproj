@@ -155,7 +155,7 @@ def arraytimeevaluator(v0, a, s, s_alt): # Calculates the crossing times for an 
     # t = v0/a*(-1+(1+2*a*s/v0**2)**(1/2))
     # s_used = s 
     
-    taylor_ind = (abs(2*a*s)<abs(0.01*v0**2)).nonzero() # abs(2*a*s/v0**2)<0.01
+    taylor_ind = (abs(2*a*s)<=abs(0.01*v0**2)).nonzero() # abs(2*a*s/v0**2)<0.01
     t[taylor_ind] = s[taylor_ind]/v0[taylor_ind]-a[taylor_ind]*s[taylor_ind]**2/(2*v0[taylor_ind]**3) # 2nd order Taylor expanded
     s_used[taylor_ind] = s[taylor_ind]
     
@@ -167,12 +167,15 @@ def arraytimeevaluator(v0, a, s, s_alt): # Calculates the crossing times for an 
     complex_ind = (2*a*s<-v0**2).nonzero() # find all t that are calculated to be complex
     if complex_ind[0].size>0:
         print('Complex_ind is: ', complex_ind)
+        print('(s, s_alt, v0, a) is: ', (s[complex_ind], s_alt[complex_ind], v0[complex_ind], a[complex_ind]))
         t[complex_ind], s_used[complex_ind] = arraytimeevaluator(v0[complex_ind], a[complex_ind], s_alt[complex_ind], s[complex_ind])
     
     negative_ind = (t<=0).nonzero()
     t[negative_ind] = -t[negative_ind]-2*v0[negative_ind]/a[negative_ind]
 
     return t, s_used
+
+# 2*0.09166341  -553.84454382    1.00001194
 
 def ioncount(imatrix): # counts the number of ions inside each shell number k
     ks = imatrix[:,2]
@@ -200,7 +203,7 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
     
     # s_alt: New array where s has the opposite direction to the velocity
     s_alt = s_outer 
-    s_alt[positive_vs_ind] =  s_inner[positive_vs_ind]
+    s_alt[positive_vs_ind] = s_inner[positive_vs_ind]
     
     # calculate the crossing times and what shell boundary was crossed
     crossing_t, s = arraytimeevaluator(vs, a, s_main, s_alt)
@@ -245,6 +248,7 @@ def iondensity(i_per_shell): # calculates unitless density of simulated ions
 
 # 2.4 Loop
 number_of_loops = int(len(x_k_i)/(u_n*Del_t))
+number_of_loops = 2
 simulation_time = r_comet/v_n*Del_t*number_of_loops # calculate how long a time (in seconds) that is simulated
 
 start_time = time.time()
