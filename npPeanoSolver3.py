@@ -84,11 +84,11 @@ if n_ion_sim > 1000:
     
 # 1.5 Electrons
 excess = 2*electrontemperature*beta # how many electrontemperatures we consider before truncation
-epsneg, negdeps = np.linspace(-excess, 0, int(number_of_boundaries/2), retstep = True)
-epspos, posdeps = np.linspace(0, excess, number_of_boundaries, retstep = True)
-eps = np.concatenate((np.delete(epsneg, -1), epspos))
-
 eps, deps = np.linspace(-excess, excess, number_of_boundaries, retstep=True) # centered on 0? 
+# epsneg, negdeps = np.linspace(-excess, 0, int(number_of_boundaries/2), retstep = True)
+# epspos, posdeps = np.linspace(0, excess, number_of_boundaries, retstep = True)
+# eps = np.concatenate((np.delete(epsneg, -1), epspos))
+
 
 # Function definitions
 def V(eps, phi): # Calculates unitless sqrt of electron kinetic energy. Either eps or phi can be numpy array.
@@ -96,7 +96,7 @@ def V(eps, phi): # Calculates unitless sqrt of electron kinetic energy. Either e
     return ((x+abs(x))/2)**(1/2) # returns 0 if V is imaginary
 
 def Vmatrix(epslist, philist): # Calculates matrix of values of V. epslist and philist are both 1D numpy arrays
-    phi, eps = np.meshgrid(philist, epslist, sparse=True) # creates mesh of phi, eps values
+    eps, phi = np.meshgrid(epslist, philist, sparse=True) # creates mesh of eps, phi values
     return V(eps, phi) # returns 2D array where Vmat[i,k] = V(epslist[i], philist[k])
     
 def UI(V0prim): # upper integrand component for the change in electron density owing to creation of new electrons.
@@ -107,22 +107,24 @@ def LI(V0): # lower integrand component for the change in electron density owing
     return V0*x_k**2*x_thickness
 
 def UperL(Vmat): # Integral fraction for calculating the change in electron density owing to creation of new electrons    
-    V0prim = Vmat[:, :len(x_k_i)] # V0 in region where ionization occurs
-    U = np.sum(UI(V0prim), axis=1) # compute upper integral, x axis = 1
-    L = np.sum(LI(Vmat), axis=1) # compute lower integral, x axis = 1
+    V0prim = Vmat[:len(x_k_i), :] # V0 in region where ionization occurs
+    U = np.sum(UI(V0prim), axis=0) # compute upper integral, x axis = 0
+    L = np.sum(LI(Vmat), axis=0) # compute lower integral, x axis = 0
     Ifrac = np.zeros_like(U)
     nonzero_ind = L.nonzero()
     Ifrac[nonzero_ind] = U[nonzero_ind]/L[nonzero_ind]
     return Ifrac
+
+def delF(Vmat):
+    return 1/(16*pi**2*(2*pi)**(1/2))*n_per_shell/beta**(3/2)*UperL(Vmat)
     
 def Itilde(Vmat): # Integral expression for calculating the change in electron density owing to creation of new electrons
     Ifrac = UperL(Vmat)
-    transVmat = np.matrix.transpose(Vmat) # Vmat transposed so that the matrix multiplication with Ifrac computes the integral over eps.
-    return transVmat@Ifrac*deps
+    return Vmat@Ifrac*deps
 
 def Fper2V(F0, Vmat): # Calculates integral corresponding to change in unitless potential. (Denominator of RHS in expression for del_phi)
     mat = np.divide(F0*deps, Vmat, out=np.zeros_like(Vmat), where=Vmat!=0) # matrix representation [eps, x] of integrand
-    ret = np.sum(2*pi*2**(1/2)*mat, axis=0) # approximate integral via summation over eps axis = 0
+    ret = np.sum(2*pi*2**(1/2)*mat, axis=1) # approximate integral via summation over eps axis = 1
     return ret
 
 def delphi(Vmat, F0, del_density): # calculates the change in unitless potential from one timestep to the next
@@ -135,6 +137,7 @@ def delphi(Vmat, F0, del_density): # calculates the change in unitless potential
 #     new_F, res, rank, sing = np.linalg.lstsq(V1, wide_density, rcond=None) # V1 is square matrix, wide_density has a value for all x_k (including inner and outer edge points)
 #     return new_F
 
+# Non-negative solutions for F are selected
 def F1(V1, wide_density): # calculates the unitless distribution function by solving for V matrix
     new_F, res = nnls(V1, wide_density) # V1 is square matrix, wide_density has a value for all x_k (including inner and outer edge points)
     return new_F
@@ -248,9 +251,11 @@ start_time = time.time()
 counter = 0
 
 # First timestep values
-old_density = np.zeros_like(x_k) # 0 for all values of x_k
+
 old_phi =  phi_anders # start with this guess
-old_F = np.random.rand(len(eps)) # 0 for all values of eps_i
+Vmat = Vmatrix(eps, old_phi) # starting Vmatrix
+old_F = delF(Vmat) # starting F is assumed the delF that results from one burst of ionization
+old_density = 4*pi*2**(1/2)*Vmat@old_F # Peano equation
 
 for j in range(number_of_loops): # Divide this into Scheme numbering
     # 1. Birth ions
@@ -266,8 +271,8 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     Efield = ElectricField(old_phi) # calculate electric field from potential
     ionmatrix = ionmotion(ionmatrix, remaining_time, Efield)
     ionmatrix = ionmatrix[ionmatrix[:,2].argsort()] # sort after column
-    OBC_ind = (ionmatrix[:,0]>x_k[-1]).nonzero() # find all ions passing outside the system
-    ionmatrix = np.delete(ionmatrix, OBC_ind, axis=0) # and delete them
+    # OBC_ind = (ionmatrix[:,0]>x_k[-1]).nonzero() # find all ions passing outside the system
+    # ionmatrix = np.delete(ionmatrix, OBC_ind, axis=0) # and delete them
     
     # 3. Calculate ion densities
     icount = ioncount(ionmatrix) # calculate number of ions in each shell
@@ -283,7 +288,7 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     del_phi = delphi(Vmat, old_F, del_density)
     
     # 5. Calculate new potential
-    new_phi = old_phi + del_phi
+    new_phi = old_phi + del_phi # including the change causes problems when arraytime is called 
     
     # 6. calculate the new distribution function
     new_Vmat = Vmatrix(eps, new_phi)
