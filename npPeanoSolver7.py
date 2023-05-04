@@ -84,7 +84,11 @@ if n_ion_sim > 1000:
     
 # 1.5 Electrons
 excess = 2*beta # how many electrontemperatures we consider before truncation
-eps, deps = np.linspace(-excess, excess, 2*number_of_boundaries, retstep=True) # centered on 0? 
+eps = np.linspace(-excess**(1/2), excess**(1/2), 2*number_of_boundaries) # centered on 0? 
+eps = eps*abs(eps) # square the array
+
+deps = eps[1:]-eps[:-1] 
+
 # epsneg, negdeps = np.linspace(-excess, 0, int(number_of_boundaries/2), retstep = True)
 # epspos, posdeps = np.linspace(0, excess, number_of_boundaries, retstep = True)
 # eps = np.concatenate((np.delete(epsneg, -1), epspos))
