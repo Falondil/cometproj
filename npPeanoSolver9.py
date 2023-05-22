@@ -216,7 +216,7 @@ def ionmotion(imatrix, Delta_t, Elist): # calculates motion for every ion in ion
     # handle inner and outer BC
     IBC_ind = (ks==-1).nonzero()
     pos[IBC_ind] += 2e-6 # put on opposite side of the IBC boundary. Alternatively pos[IBC_ind] = x_thickness+1e-6
-    ks[IBC_ind] = 0 # The code thinks somehow that the ion ends up in shell 1 instead of 0 ??
+    ks[IBC_ind] = 0 
     vs[IBC_ind] = -vs[IBC_ind] # bounce at comet surface
     
     OBC_ind = (ks>=number_of_shells).nonzero() 
