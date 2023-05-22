@@ -292,7 +292,7 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # 4. Use electrons to solve for change in potential
     Vmat = Vmatrix(eps, old_phi)
     del_phi = delphi(Vmat, old_F, del_density)
-    if counter < neutral_time: # initiate change in potential after 10 time steps
+    if counter < 1/Del_t: # initiate change in potential after 1/Del_t time steps
         del_phi[:] = 0
     
     # 5. Calculate new potential
