@@ -27,7 +27,7 @@ x_comet = 1
 x_thickness = 1
 Del_t = 0.1 # timestep between ionization bursts, unitless. 1 is time for unaccelerated ions to traverse one shell width.
 
-n_per_shell = 20 # number of ions generated in each shell
+n_per_shell = 10 # number of ions generated in each shell
 n_ion_sim = n_per_shell # count the number of simulated ions created per shell each timestep
 n_ion_real = nu*(r_comet/v_n)**2*Del_t*Q # count the number of ions that they represent
 realsimratio = n_ion_real/n_ion_sim # the number of real ions each simulated ion represents
@@ -252,7 +252,7 @@ def iondensity(i_per_shell): # calculates unitless density of simulated ions
 
 # 2.4 Loop
 neutral_time = int(len(x_k_i)/(u_n*Del_t)) # time for the neutrals to travel x_k_i
-number_of_loops = neutral_time
+number_of_loops = 2*neutral_time
 simulation_time = r_comet/v_n*Del_t*number_of_loops # calculate how long a time (in seconds) that is simulated
 
 start_time = time.time()
@@ -301,12 +301,12 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     
     # 4. Use electrons to solve for change in potential
     Vmat = Vmatrix(eps, old_phi)
-    del_phi = delphi(Vmat, old_F, del_density)
-    if counter < 1/Del_t: # initiate change in potential after 5/Del_t time steps
-        del_phi[:] = 0
+    del_phi = np.full_like(x_k, 0)
+    if counter > neutral_time: # initiate change in potential
+        del_phi = delphi(Vmat, old_F, del_density)
     
     # 5. Calculate new potential
-    new_phi = old_phi + del_phi # including the change causes problems when arraytime is called 
+    new_phi = old_phi + del_phi 
     
     # 6. calculate the new distribution function
     new_Vmat = Vmatrix(eps, new_phi)
