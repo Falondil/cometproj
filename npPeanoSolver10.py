@@ -63,12 +63,12 @@ def ionshellcreation(n, k): # creates n ions uniformly distributed in the k-th s
 # 1.3 Creating the first potential
 
 # phi(r) = k Te/e * ln(nu_R dt N_R (r/R)**2) # 
-phi_at_comet = 1e0 # PLACEHOLDER. CALCULATE
+phi_at_comet = beta # PLACEHOLDER. CALCULATE
 initial_phi = [phi_at_comet*(x_comet/x)**2 if x in x_k_i else phi_at_comet*(x_comet/x_k_i[-1])**2 for x in x_k]
 # ask Anders
 
-phi_anders = phi_at_comet*(x_k[-1]-x_k) # Linear potential. numpy array, endpoint is 0
-phi_anders_log = phi_at_comet*(np.log(x_k[-1])-np.log(x_k)) # Logarithmic potential. numpy array, endpoint is 0
+phi_anders = phi_at_comet*(x_k[-1]-x_k)/x_k[-1] # Linear potential. numpy array, endpoint is 0
+phi_anders_log = phi_at_comet/5*(np.log(x_k[-1])-np.log(x_k)) # Logarithmic potential. numpy array, endpoint is 0
 
 # 1.4 Randomly generating the ions
 
@@ -298,7 +298,7 @@ counter = 0
 # old_density = np.zeros_like(x_k) # Perhaps change this for Peano eq. I.e. eta = 4*pi*sqrt(2)*integral(F*V deps)
 
 # one step electron ionization-method # start with this guess
-old_phi = phi_anders#_log # PLACEHOLDER
+old_phi = phi_anders_log # PLACEHOLDER
 Vmat = Vmatrix(eps, old_phi) # starting Vmatrix
 old_F = delF(Vmat) # starting F is assumed the delF that results from one burst of ionization
 old_density = 4*pi*2**(1/2)*Vmat@(old_F*deps) # Peano equation. (QUESTIONABLE) 
