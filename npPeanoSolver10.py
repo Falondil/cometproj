@@ -83,7 +83,8 @@ if n_ion_sim > 1000:
     
     
 # 1.5 Electrons
-def depscalc(epslist):
+# ISN'T NECESSARY
+def depscalc(epslist): 
     posbool = epslist>0 # boolean of positive energies
     poslist = epslist[posbool] # array of all positive energies
     neglist = epslist[np.invert(posbool)] # array of all negative energies
@@ -94,10 +95,7 @@ def depscalc(epslist):
     return np.concatenate((depsneg, depspos)) 
 
 excess = 3*beta # how many electrontemperatures we consider before truncation
-eps = np.linspace(-excess, excess, number_of_boundaries*2) # centered on 0, but excluding 0
-if len(eps)%2==1:
-    print('Eps list should not include the value of zero by construction. To fix this, set the number of eps to be even.')
-deps = depscalc(eps)
+eps, deps = np.linspace(-excess, excess, number_of_boundaries*2, retstep = True) # centered on 0, but excluding 0
 
 # Function definitions
 
@@ -109,11 +107,11 @@ def Vmatrix(epslist, philist): # Calculates matrix of values of V. epslist and p
     eps, phi = np.meshgrid(epslist, philist, sparse=True) # creates mesh of eps, phi values
     return V(eps, phi) # returns 2D array where Vmat[k,i] = V(philist[k], epslist[i])
     
-def UI(V0prim): # upper integrand component for the change in electron density owing to creation of new electrons.
+def UI(V0prim): # Maxwell-Boltzmann integrand. upper integrand component for the change in electron density owing to creation of new electrons.
     # V0prim = V0[:len(x_k_i)] # all V where ionization occurs
     return V0prim*np.exp(-V0prim**2/beta)*x_thickness
     
-def LI(V0): # lower integrand component for the change in electron density owing to creation of new electrons.
+def LI(V0): # V0x^2 integrand. lower integrand component for the change in electron density owing to creation of new electrons.
     ret = np.matrix.transpose(V0)*x_k**2*x_thickness 
     return np.matrix.transpose(ret)
 
@@ -139,22 +137,55 @@ def Fper2V(F0, Vmat): # Calculates integral corresponding to change in unitless 
     ret = np.sum(2*pi*2**(1/2)*mat, axis=1) # approximate integral via summation over eps axis = 1
     return ret
 
-def delphi(Vmat, F0, del_density): # calculates the change in unitless potential from one timestep to the next
+def delphi(Vmat, F0, del_density): # eq. 45. calculates the change in unitless potential from one timestep to the next
     numer = del_density-n_per_shell/(2*(pi*beta)**(3/2))*Itilde(Vmat) # numerator
     denom = Fper2V(F0, Vmat) # denominator
     ret = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0) # denominator/numerator if numerator != 0 else 0.
     return ret
     
-def dJtildedeps(Vmat):
+def dJtildedeps(Vmat): # eq. 30
     L = np.sum(LI(Vmat), axis=0) # compute lower integral, x axis = 0
     return 16*pi**2*2**(1/2)*L
 
-# def newF(F0, V0, V):
-#     deriv = depsdeps0()
-#     ret = delF(V) + 
+def neweps(eps, phi, del_phi): # eq. 48
+    Vmat = Vmatrix(eps, phi) # compute Vmat matrix
+    Vmatx2 = LI(Vmat) # matrix with elements Vmat*x^2 
+    delphiVmatx2 = np.matrix.transpose(np.matrix.transpose(Vmatx2)*del_phi) # multiply integrand by del_phi
+    numer = np.sum(delphiVmatx2, axis=0) # computer upper integral, x axis = 0 
+    denom = np.sum(Vmatx2, axis=0) # computer lower integral, x axis = 0
+    return eps-np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
     
-# def neweps(eps0, phi0, del_phi):
-#     Vmatx2 = Vmatrix(eps0, phi0)
+def newF(F0, V0, V, del_phi): # eq. 53
+    numer = F0+delF(V0)/2 # add half of new electrons in old potential
+    denom = depsdeps0(V0, del_phi)
+    fraction = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0) # denominator/numerator if numerator != 0 else 0.
+    
+    V0int = np.sum(LI(V0), axis=0) # compute upper integral, summing over x axis
+    Vint = np.sum(LI(V), axis=0) # computer lower integral, summing over x axis
+    Ifrac = np.divide(V0int, Vint, out=np.zeros_like(V0int), where=Vint!=0)
+    
+    return delF(V)/2 + fraction*Ifrac # add half of new electrons in new potential
+
+def depsdeps0(Vmat, del_phi): # eq. 57
+    deriv = ddelepsdeps0(Vmat, del_phi)
+    return abs(1+deriv)
+
+def ddelepsdeps0(Vmat, del_phi): # eq. 60
+    Vmatx2 = LI(Vmat) # create matrix with elements Vmat*x^2
+    sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
+    
+    delphiVmatx2 = np.matrix.transpose(np.matrix.transpose(Vmatx2)*del_phi) # multiply integrand by del_phi
+    
+    per2Vmat = np.divide(1, 2*Vmat, out=np.zeros_like(Vmat), where=Vmat!=0) # compute inverse of 2V0
+    per2Vmatx2 = LI(per2Vmat) # compute matrix with element values x^2/(2Vmat)
+    delphiper2Vmatx2 = np.matrix.transpose(np.matrix.transpose(per2Vmatx2)*del_phi) # multiply integrand by del_phi
+    
+    firstterm = np.sum(delphiVmatx2, axis=0)*np.sum(per2Vmatx2, axis=0)
+    secondterm = np.sum(delphiper2Vmatx2, axis=0)*sumVmatx2
+    numer = firstterm-secondterm
+    denom = sumVmatx2**2
+    return np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
+
 
 #----------------------------------Ion motion----------------------------------
 
@@ -300,6 +331,7 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     del_density = new_density - old_density 
     
     # 4. Use electrons to solve for change in potential
+    
     Vmat = Vmatrix(eps, old_phi)
     del_phi = np.full_like(x_k, 0)
     if counter > neutral_time: # initiate change in potential
@@ -309,9 +341,22 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     new_phi = old_phi + del_phi 
     
     # 6. calculate the new distribution function
-    new_Vmat = Vmatrix(eps, new_phi)
-    del_F = delF(new_Vmat)
-    new_F = old_F + del_F
+    new_eps = neweps(eps, old_phi, del_phi)
+    new_Vmat = Vmatrix(new_eps, new_phi)
+    new_F = newF(old_F, Vmat, new_Vmat, del_phi)
+    
+    sortind = np.argsort(new_eps) # find ind that would sort new_eps
+    new_eps = new_eps[sortind] # sort new eps
+    new_F = new_F[sortind] # sort new F via same sorting
+    
+    # now resample F
+    
+    
+    
+    # Legacy
+    # new_Vmat = Vmatrix(eps, new_phi)
+    # del_F = delF(new_Vmat)
+    # new_F = old_F + del_F
 
 
     # 7. Plotting
@@ -327,12 +372,12 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # plt.ylabel('Number of ions')
     # plt.plot(icount, '.', color='k')
     
-    plt.figure()
-    plt.title('Potential. Iteration: '+str(counter))
-    plt.xlabel('Distance from comet center [R'+'$_{C}$]')
-    plt.ylabel('Potential')
-    plt.plot(x_k, new_phi,'.', color='k')
-    plt.plot(x_k, phi_anders, '-', color = 'C0')
+    # plt.figure()
+    # plt.title('Potential. Iteration: '+str(counter))
+    # plt.xlabel('Distance from comet center [R'+'$_{C}$]')
+    # plt.ylabel('Potential')
+    # plt.plot(x_k, new_phi,'.', color='k')
+    # plt.plot(x_k, phi_anders, '-', color = 'C0')
     
     # plt.figure()
     # plt.title('Change in potential. Iteration: '+str(counter))
@@ -340,11 +385,11 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # plt.ylabel('Change in potential')
     # plt.plot(x_k, del_phi,'.', color='k')
     
-    # plt.figure()
-    # plt.title('Electron distribution function. Iteration: '+str(counter))
-    # plt.xlabel('Electron energy')
-    # plt.ylabel('F')
-    # plt.plot(eps, new_F, '.', color='k')
+    plt.figure()
+    plt.title('Electron distribution function. Iteration: '+str(counter))
+    plt.xlabel('Electron energy')
+    plt.ylabel('F')
+    plt.plot(new_eps, new_F, '.', color='k')
     
     # electron_density = 4*pi*2**(1/2)*new_Vmat@new_F*deps
     # plt.figure()
@@ -357,6 +402,9 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     old_density = new_density
     old_phi = new_phi
     old_F = new_F
+    eps = new_eps
+    deps = depscalc(new_eps)
+    
     counter+=1 # increment the number of loops performed
     
     # Relics
