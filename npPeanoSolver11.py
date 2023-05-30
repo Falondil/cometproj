@@ -98,7 +98,6 @@ excess = 3*beta # how many electrontemperatures we consider before truncation
 eps, deps = np.linspace(-excess, excess, int(2*beta), retstep = True) # centered on 0
 
 # Function definitions
-
 def V(eps, phi): # Calculates unitless sqrt of electron kinetic energy. Either eps or phi can be numpy array.
     x = eps+phi    
     return ((x+abs(x))/2)**(1/2) # returns 0 if V is imaginary
@@ -186,15 +185,14 @@ def ddelepsdeps0(Vmat, del_phi): # eq. 60
     denom = sumVmatx2**2
     return np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
 
-def averageenergy(F, Vmat):
+def averageelectronenergy(F, Vmat):
     Vmatx2 = LI(Vmat) # create matrix with elements Vmat*x^2
     sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
     
-    numer = (Vmat**2)@(F*deps*sumVmatx2) # wrong dimension performed. 
-    denom = F*deps*sumVmatx2
-    Ifrac = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
-    return(sum(Ifrac))
-    
+    numer = (Vmat**2)@(F*deps*sumVmatx2)
+    denom = sum((x_k[-1]-1)*F*deps*sumVmatx2)
+    frac = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
+    return(sum(frac))
 
 
 #----------------------------------Ion motion----------------------------------
@@ -291,6 +289,10 @@ def iondensity(i_per_shell): # calculates unitless density of simulated ions
     i_numberdensity = (i_per_shell[1:]+i_per_shell[:-1])/(4/3*pi*(x_k[2:]**3-x_k[:-2]**3))
     return i_numberdensity
 
+def averageionenergy(imatrix):
+    vs = imatrix[:,1] # velocity of ions
+    return (sum(vs**2)/len(vs))
+
 # 2.4 Loop
 neutral_time = int(len(x_k_i)/(u_n*Del_t)) # time for the neutrals to travel x_k_i
 number_of_loops = 2*neutral_time
@@ -298,6 +300,7 @@ simulation_time = r_comet/v_n*Del_t*number_of_loops # calculate how long a time 
 
 start_time = time.time()
 counter = 0
+averageenergies = np.empty((number_of_loops, 3))
 
 # First timestep values
 
@@ -361,6 +364,12 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # now resample F
     new_F = np.interp(eps, new_eps, new_F)
     
+    # Calculate current total kinetic energy in the system
+    avg_e_energy = averageelectronenergy(new_F, Vmat)
+    avg_i_energy = averageionenergy(ionmatrix)
+    averageenergies[counter, :] = [avg_e_energy, avg_i_energy, (avg_e_energy+avg_i_energy)/2] # avg total energy can be calculated this way since we demand equal number of both electrons and ions
+    
+    
     # Legacy
     # new_Vmat = Vmatrix(eps, new_phi)
     # del_F = delF(new_Vmat)
@@ -422,7 +431,19 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # andersprop = ((1+2*(x_k[1:-1]-1)*phi_at_comet)**(1/2)-1)/(x_k[1:-1]**2*phi_at_comet) # for linear potential
     # # andersprop = 1/x_k[1:-1]*(pi/2)**(1/2)*np.exp(1/(2*phi_at_comet))*(erf(((1+2*phi_at_comet*np.log(x_k[1:-1]))/(2*phi_at_comet))**(1/2)) - erf(1/(2*phi_at_comet)**(1/2)))# for logarithmic potential
     # plt.plot(idensity/andersprop, '.', color='k')
-    
+
+plt.figure()
+plt.title('Average energies in the system')
+plt.xlabel('Iteration number')
+plt.ylabel('Unitless average kinetic energy')
+plt.plot(averageenergies[:,2], color='k', label='Total')
+plt.plot(averageenergies[:,0], color='k', linestyle='--', label='Electron')
+plt.plot(averageenergies[:,1], color='k', linestyle=':', label='Ion')
+plt.axvline(neutral_time, color='k')
+plt.axvline(680, color='k')
+
+plt.legend()
+
 end_time = time.time()
 
 elapsed_time = end_time-start_time
