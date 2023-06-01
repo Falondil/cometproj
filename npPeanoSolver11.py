@@ -95,7 +95,7 @@ if n_ion_sim > 1000:
     # return np.concatenate((depsneg, depspos)) 
 
 excess = 3*beta # how many electrontemperatures we consider before truncation
-eps, deps = np.linspace(-excess, excess, int(2*beta), retstep = True) # centered on 0
+eps, deps = np.linspace(-excess, excess, int(2*excess), retstep = True) # centered on 0
 
 # Function definitions
 def V(eps, phi): # Calculates unitless sqrt of electron kinetic energy. Either eps or phi can be numpy array.
