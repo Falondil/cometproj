@@ -126,7 +126,7 @@ def UperL(Vmat): # Integral fraction for calculating the change in electron dens
 
 def delF(Vmat):
     ret = 1/(8*pi**2*(2*pi)**(1/2))*n_per_shell/beta**(3/2)*UperL(Vmat) # eq. 32 (label delF) in overleaf 
-    ret = ret*(eps>0) # line for eliminating all positive eps 
+    ret = ret*(eps<0) # line for eliminating all positive eps 
     return ret
     
 def Itilde(Vmat): # Integral expression for calculating the change in electron density owing to creation of new electrons
@@ -168,7 +168,7 @@ def newF(F0, V0, V, del_phi): # eq. 53
     ret = delF(V)/2 + fraction*Ifrac # add half of new electrons in new potential
     
     # line for eliminating all positive eps 
-    ret = ret*(eps>0)
+    ret = ret*(eps<0)
     
     return ret 
 
@@ -352,7 +352,7 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # 4. Use electrons to solve for change in potential
     Vmat = Vmatrix(eps, old_phi)
     del_phi = np.full_like(x_k, 0)
-    if counter > neutral_time: # initiate change in potential
+    if counter > neutral_time: # initiate change in potential, T = 10.07..
         del_phi = delphi(Vmat, old_F, del_density)
     
     # 5. Calculate new potential
@@ -450,7 +450,6 @@ plt.plot(averageenergies[:,0], color='k', linestyle='--', label='Electron')
 plt.plot(averageenergies[:,1], color='k', linestyle=':', label='Ion')
 plt.axvline(neutral_time, color='k')
 # plt.axvline(680, color='k')
-
 plt.legend()
 
 end_time = time.time()
