@@ -184,6 +184,11 @@ def ddelepsdeps0(Vmat, del_phi): # eq. 60
     denom = sumVmatx2**2
     return np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
 
+def electroncounter(F, Vmat):
+    Vmatx2 = LI(Vmat) # create matrix with elements Vmat*x^2
+    sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
+    return 16*pi**2*2**(1/2)*sum(F*deps*sumVmatx2)
+
 def averageelectronenergy(F, Vmat):
     Vmatx2 = LI(Vmat) # create matrix with elements Vmat*x^2
     sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
@@ -300,6 +305,9 @@ simulation_time = r_comet/v_n*Del_t*number_of_loops # calculate how long a time 
 start_time = time.time()
 counter = 0
 averageenergies = np.empty((number_of_loops, 3))
+ionnumbers = np.empty(number_of_loops)
+electronnumbers = np.empty(number_of_loops)
+ionsvanished = 0
 
 # First timestep values
 
@@ -332,6 +340,7 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     ionmatrix = ionmatrix[ionmatrix[:,2].argsort()] # sort after shell number
     OBC_ind = (ionmatrix[:,0]>x_k[-1]).nonzero() # find all ions passing outside the system
     ionmatrix = np.delete(ionmatrix, OBC_ind, axis=0) # and delete them
+    ionsvanished += len(OBC_ind[0]) # count how many vanish
     
     # 3. Calculate ion densities
     icount = ioncount(ionmatrix) # calculate number of ions in each shell
@@ -375,6 +384,9 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     avg_e_energy = averageelectronenergy(new_F, Vmat)
     avg_i_energy = averageionenergy(ionmatrix)
     averageenergies[counter, :] = [avg_e_energy, avg_i_energy, (avg_e_energy+avg_i_energy)/2] # avg total energy can be calculated this way since we demand equal number of both electrons and ions
+    
+    ionnumbers[counter] = len(ionmatrix)
+    electronnumbers[counter] = electroncounter(new_F, new_Vmat)
     
     # Legacy
     # new_Vmat = Vmatrix(eps, new_phi)
