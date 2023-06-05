@@ -321,7 +321,7 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     remaining_time = np.repeat(Del_t, ionmatrix[:,0].shape) # create a remaining time matrix for prior ions
     source_ions = ioncreation(n_per_shell, x_k_i[-1]) # birth new ions
     source_remaining_time = np.random.uniform(0, Del_t, source_ions[:,0].shape) # add a uniform random time [0, Del_t) remaining for the newly born ions (Reflects the fact that the ions can be born any time during the time step)
-    
+        
     # concatenate prior ions and recently born ions
     ionmatrix = np.concatenate((ionmatrix, source_ions)) # add new ions to ion matrix
     remaining_time = np.concatenate((remaining_time, source_remaining_time))
@@ -345,7 +345,7 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # 4. Use electrons to solve for change in potential
     Vmat = Vmatrix(eps, old_phi)
     del_phi = np.full_like(x_k, 0)
-    if counter > neutral_time: # initiate change in potential, T = 10.07860256446754 is where innermost starting ion reaches the outermost boundary
+    if counter > 2*10.07860256446754/Del_t: # initiate change in potential, T = 10.07860256446754 is where innermost starting ion reaches the outermost boundary
         del_phi = delphi(Vmat, old_F, del_density)
     
     # 5. Calculate new potential
@@ -446,6 +446,7 @@ plt.plot(averageenergies[:,2], color='k', label='Total')
 plt.plot(averageenergies[:,0], color='k', linestyle='--', label='Electron')
 plt.plot(averageenergies[:,1], color='k', linestyle=':', label='Ion')
 plt.axvline(neutral_time, color='k')
+plt.axvline(10.07860256446754/Del_t, color='k')
 # plt.axvline(680, color='k')
 plt.legend()
 
