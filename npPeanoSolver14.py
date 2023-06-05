@@ -95,7 +95,7 @@ if n_ion_sim > 1000:
     # return np.concatenate((depsneg, depspos)) 
 
 excess = 3*beta # how many electrontemperatures we consider before truncation
-eps, deps = np.linspace(-excess, excess, int(2*excess), retstep = True) # centered on 0
+eps, deps = np.linspace(-excess, excess, int(4*excess), retstep = True) # centered on 0
 
 # Function definitions
 def V(eps, phi): # Calculates unitless sqrt of electron kinetic energy. Either eps or phi can be numpy array.
@@ -199,22 +199,22 @@ def averageelectronenergy(F, Vmat):
     frac = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
     return(sum(frac))
 
-# def electrondeleter(F, lastphi, ionsvanished):
-#     Vx2 = V(eps, lastphi)*x_k[-1]**2
-#     integrandarray = np.flip(16*pi**2*2**(1/2)*deps*F*Vx2)
+def electrondeleter(F, lastphi, ionsvanished):
+    Vx2 = V(eps, lastphi)*x_k[-1]**2
+    integrandarray = np.flip(16*pi**2*2**(1/2)*deps*F*Vx2)
     
-#     integral = 0
-#     for ind in range(len(integrandarray)):
-#         integrand = integrandarray[ind]
-#         if integral + integrand >= ionsvanished:
-#             break
-#         integral += integrand
-#     remaining = ionsvanished - integral
-#     finalFdiff = remaining/(16*pi**2*2**(1/2)*(deps*Vx2)[-ind-1])
+    integral = 0
+    for ind in range(len(integrandarray)):
+        integrand = integrandarray[ind]
+        if integral + integrand >= ionsvanished:
+            break
+        integral += integrand
+    remaining = ionsvanished - integral
+    finalFdiff = remaining/(16*pi**2*2**(1/2)*(deps*Vx2)[-ind-1])
     
-#     F[-ind:] = 0
-#     F[-ind-1] = F[-ind-1]-finalFdiff
-#     return F
+    F[-ind:] = 0
+    F[-ind-1] = F[-ind-1]-finalFdiff
+    return F
 
 #----------------------------------Ion motion----------------------------------
 
@@ -324,7 +324,7 @@ counter = 0
 averageenergies = np.zeros((number_of_loops, 3))
 ionnumbers = np.zeros(number_of_loops)
 electronnumbers = np.zeros(number_of_loops)
-ionsvanished = 0
+totionsvanished = 0
 
 # First timestep values
 
@@ -338,8 +338,7 @@ ionsvanished = 0
 old_phi = phi_anders_log # PLACEHOLDER
 Vmat = Vmatrix(eps, old_phi) # starting Vmatrix
 old_F = delF(Vmat) # starting F is assumed the delF that results from one burst of ionization
-old_density = 4*pi*2**(1/2)*Vmat@(old_F*deps) # Peano equation. (QUESTIONABLE) 
-# old_phi = delphi(Vmat, old_F, old_density) # set phi again (QUESTIONABLE)
+old_density = 4*pi*2**(1/2)*Vmat@(old_F*deps) # Peano equation. (QUESTIONABLE)
 
 # start from counter = 510 method
 # counter = 510
@@ -348,6 +347,9 @@ old_density = 4*pi*2**(1/2)*Vmat@(old_F*deps) # Peano equation. (QUESTIONABLE)
 # old_density = loaded_arrays['old_density']
 # old_phi = loaded_arrays['old_phi']
 # old_F = loaded_arrays['old_F']
+# averageenergies = loaded_arrays['averageenergies']
+# ionnumbers = loaded_arrays['ionnumbers']
+# electronnumbers = loaded_arrays['electronnumbers']
 # number_of_loops -= counter # perform 510 less loops
 
 for j in range(number_of_loops): # Divide this into Scheme numbering
@@ -366,7 +368,8 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     ionmatrix = ionmatrix[ionmatrix[:,2].argsort()] # sort after shell number
     OBC_ind = (ionmatrix[:,0]>x_k[-1]).nonzero() # find all ions passing outside the system
     ionmatrix = np.delete(ionmatrix, OBC_ind, axis=0) # and delete them
-    ionsvanished += len(OBC_ind[0]) # count how many vanish
+    ionsvanished = len(OBC_ind[0]) # count how many vanish
+    totionsvanished += ionsvanished # and add to total 
     
     # 3. Calculate ion densities
     icount = ioncount(ionmatrix) # calculate number of ions in each shell
@@ -388,6 +391,8 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     
     # 6. calculate the new distribution function
     # old_F = electrondeleter(old_F, new_phi[-1], ionsvanished) # removes electrons from highest energy levels equal to number of ions removed
+    unbound_ind = (eps>new_phi[-1]).nonzero()
+    old_F[unbound_ind] = 0 # removes all electrons with more energy than the outermost potential
     new_eps = neweps(eps, old_phi, del_phi)
     new_Vmat = Vmatrix(new_eps, new_phi)
     new_F = newF(old_F, Vmat, new_Vmat, del_phi)
@@ -464,6 +469,9 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     
     counter+=1 # increment the number of loops performed
     
+    # if counter == 510:
+    #     np.savez('simto'+str(counter)+'.npz', ionmatrix=ionmatrix, old_density=old_density, old_phi=old_phi, old_F=old_F, averageenergies=averageenergies, ionnumbers=ionnumbers, electronnumbers=electronnumbers)
+    
     # Relics
     # andersprop = ((1+2*(x_k[1:-1]-1)*phi_at_comet)**(1/2)-1)/(x_k[1:-1]**2*phi_at_comet) # for linear potential
     # # andersprop = 1/x_k[1:-1]*(pi/2)**(1/2)*np.exp(1/(2*phi_at_comet))*(erf(((1+2*phi_at_comet*np.log(x_k[1:-1]))/(2*phi_at_comet))**(1/2)) - erf(1/(2*phi_at_comet)**(1/2)))# for logarithmic potential
@@ -493,6 +501,3 @@ end_time = time.time()
 elapsed_time = end_time-start_time
 print('Simulated time: '+str(simulation_time)+' s')
 print('Elapsed time: '+str(elapsed_time)+' s')
-
-# if counter == 510:
-#     np.savez('simto'+str(counter)+'.npz', ionmatrix=ionmatrix, old_density=old_density, old_phi=old_phi, old_F=old_F)
