@@ -41,10 +41,9 @@ x_k = np.arange(x_comet, number_of_boundaries+x_comet, dtype=int) # every equall
 x_k_i = x_k[:-int(len(x_k)/2)] # shells in which we consider ionization
 
 # 1.2 defining functions
-def ioncreation(n_per_shell, final_k): # creates n ions, equally many in each shell, up to shell number final_k
-    # n_per_shell = int(n/(final_k+1)) # this is rounded down.
+def ioncreation(n_per_shell, xfin): # creates n ions, equally many in each shell, up to outer boundary xfin
     ilist = np.empty((0, 3)) # empty 0-by-3 matrix
-    for k in range(final_k+1):
+    for k in range(xfin-1):
         ilist = np.concatenate((ilist, ionshellcreation(n_per_shell, k)), axis=0)
     return ilist
 
@@ -95,7 +94,7 @@ if n_ion_sim > 1000:
     # return np.concatenate((depsneg, depspos)) 
 
 excess = 3*beta # how many electrontemperatures we consider before truncation
-eps, deps = np.linspace(-excess, excess, int(4*excess), retstep = True) # centered on 0
+eps, deps = np.linspace(-excess, 0, int(6*excess), retstep = True) # centered on 0
 
 # Function definitions
 def V(eps, phi): # Calculates unitless sqrt of electron kinetic energy. Either eps or phi can be numpy array.
@@ -125,7 +124,10 @@ def UperL(Vmat): # Integral fraction for calculating the change in electron dens
     return Ifrac
 
 def delF(Vmat):
-    return 1/(8*pi**2*(2*pi)**(1/2))*n_per_shell/beta**(3/2)*UperL(Vmat) # eq. 32 (label delF) in overleaf 
+    ret = 1/(8*pi**2*(2*pi)**(1/2))*n_per_shell/beta**(3/2)*UperL(Vmat) # eq. 33 (label delF) in overleaf 
+    electronnumber = electroncounter(ret, Vmat) # count how many electrons are created.
+    ret*=(n_per_shell*(x_k_i[-1]-x_k_i[0]))/electronnumber # how many should be created divided by how many are actually created
+    return ret
     
 def Itilde(Vmat): # Integral expression for calculating the change in electron density owing to creation of new electrons
     Ifrac = UperL(Vmat)
@@ -199,9 +201,10 @@ def averageelectronenergy(F, Vmat):
     frac = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
     return(sum(frac))
 
-def electrondeleter(F, lastphi, ionsvanished):
-    Vx2 = V(eps, lastphi)*x_k[-1]**2
-    integrandarray = np.flip(16*pi**2*2**(1/2)*deps*F*Vx2)
+def electrondeleter(F, Vmat, ionsvanished):
+    Vmatx2 = LI(Vmat) # create matrix with elements Vmat*x^2
+    sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
+    integrandarray = np.flip(16*pi**2*2**(1/2)*deps*F*sumVmatx2)
     
     integral = 0
     for ind in range(len(integrandarray)):
@@ -210,7 +213,7 @@ def electrondeleter(F, lastphi, ionsvanished):
             break
         integral += integrand
     remaining = ionsvanished - integral
-    finalFdiff = remaining/(16*pi**2*2**(1/2)*(deps*Vx2)[-ind-1])
+    finalFdiff = remaining/(16*pi**2*2**(1/2)*(deps*sumVmatx2)[-ind-1])
     
     if ind > 0:
         F[-ind:] = 0
@@ -348,12 +351,12 @@ old_density = 4*pi*2**(1/2)*Vmat@(old_F*deps) # Peano equation. (QUESTIONABLE)
 # old_density = loaded_arrays['old_density']
 # old_phi = loaded_arrays['old_phi']
 # old_F = loaded_arrays['old_F']
-# averageenergies = loaded_arrays['averageenergies']
-# ionnumbers = loaded_arrays['ionnumbers']
-# electronnumbers = loaded_arrays['electronnumbers']
-# number_of_loops -= counter # perform 510 less loops
+# averageenergies[:510] = loaded_arrays['averageenergies'] # fill first 510 values of array with loaded values
+# ionnumbers[:510] = loaded_arrays['ionnumbers']
+# electronnumbers[:510] = loaded_arrays['electronnumbers']
+# number_of_loops -= counter # perform 510 less timesteps
 
-for j in range(number_of_loops): # Divide this into Scheme numbering
+for j in range(number_of_loops):
     # 1. Birth ions
     remaining_time = np.repeat(Del_t, ionmatrix[:,0].shape) # create a remaining time matrix for prior ions
     source_ions = ioncreation(n_per_shell, x_k_i[-1]) # birth new ions
@@ -391,11 +394,10 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     new_phi = old_phi + del_phi 
     
     # 6. calculate the new distribution function
-    # old_F = electrondeleter(old_F, new_phi[-1], ionsvanished) # removes electrons from highest energy levels equal to number of ions removed
-    # unbound_ind = (eps>new_phi[-1]).nonzero()
-    # old_F[unbound_ind] = 0 # removes all electrons with more energy than the outermost potential
+    # old_F = electrondeleter(old_F, Vmat, ionsvanished) # Alt. 0. removes electrons from highest energy levels equal to number of ions removed using old potential
     new_eps = neweps(eps, old_phi, del_phi)
     new_Vmat = Vmatrix(new_eps, new_phi)
+    old_F = electrondeleter(old_F, new_Vmat, ionsvanished) # Alt. 1. removes electrons from highest energy levels equal to number of ions removed using new potential and energy levels
     new_F = newF(old_F, Vmat, new_Vmat, del_phi)
     
     sortind = np.argsort(new_eps) # find ind that would sort new_eps
@@ -404,7 +406,7 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     
     # now resample F
     new_F = np.interp(eps, new_eps, new_F)
-    # new_F = electrondeleter(new_F, new_phi[-1], ionsvanished) # removes electrons from highest energy levels equal to number of ions removed
+    # new_F = electrondeleter(new_F, new_Vmat, ionsvanished) # Alt. 2. removes electrons from highest energy levels equal to number of ions removed using new potential and interpolated back to old energy levels
     
     # Calculate current total kinetic energy in the system
     avg_e_energy = averageelectronenergy(new_F, Vmat)
@@ -470,9 +472,18 @@ for j in range(number_of_loops): # Divide this into Scheme numbering
     # eps = new_eps # This is wrong when resampling.
     
     counter+=1 # increment the number of loops performed
+    # if counter > neutral_time: 
+    #     if counter < neutral_time+10:   
+    #         Del_t = 0.01
+    #     else:
+    #         Del_t = 0.1
     
     # if counter == 510:
     #     np.savez('simto'+str(counter)+'.npz', ionmatrix=ionmatrix, old_density=old_density, old_phi=old_phi, old_F=old_F, averageenergies=averageenergies, ionnumbers=ionnumbers, electronnumbers=electronnumbers)
+    
+    # np.mean(electronnumbers[300:-1]-electronnumbers[299:-2]) = -53 
+    # ions increase by 520 each timestep before the knee, electrons increase by 466.8. 520-466.8 = 53.2
+    
     
     # Relics
     # andersprop = ((1+2*(x_k[1:-1]-1)*phi_at_comet)**(1/2)-1)/(x_k[1:-1]**2*phi_at_comet) # for linear potential
