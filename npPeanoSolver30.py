@@ -63,10 +63,10 @@ def initialcreation(number_of_ions): # for creating the first population of ions
     
     poslist = np.linspace(x_k[0], x_k[-1], number_of_boundaries*10) # create linearly spaced list for the discretization of the CDF integral into a cumulative sum
     posCDF = CDF(logiondensity, poslist) # find the CDF for ion comet distance
-    print("CDFarray with size:", posCDF.size, posCDF)
+    # print("CDFarray with size:", posCDF.size, posCDF) # debugging
     
     uniformlist = np.random.uniform(size=number_of_ions) # uniform distribution of ions in probability space
-    print("uniformlist with size:", uniformlist.size, uniformlist)
+    # print("uniformlist with size:", uniformlist.size, uniformlist) # debugging
     
     ionmatrix[:, 0] = np.interp(uniformlist, posCDF, poslist) # evaluate what comet distances correspond to the ions positions' in probability space
     ionmatrix = ionmatrix[ionmatrix[:,0].argsort()] # sort after comet distance
@@ -462,6 +462,8 @@ global_rho = loginitialrho(eps, Vmat) # calculate energy density
 old_F = np.divide(global_rho, dJtildedeps(Vmat), out=np.zeros_like(global_rho), where=dJtildedeps(Vmat)!=0) # calculate phase space density
 old_F *= nionstart/electroncounter(old_F, Vmat) # rescale the phase space density such that the total number of electrons = total number of ions
 
+savematrix = np.empty((number_of_loops, 3)) # create a matrix that saves results every ? timesteps
+
 for j in range(number_of_loops):
     # 1. Birth ions
     remaining_time = np.repeat(Del_t, ionmatrix[:,0].shape) # create a remaining time matrix for prior ions
@@ -481,14 +483,13 @@ for j in range(number_of_loops):
     ionsvanished = len(OBC_ind[0]) # count how many vanish
     totionsvanished += ionsvanished # and add to total 
     
+    nbackwardsions = len((ionmatrix[:,1]<0).nonzero()[0])# count number of ions with negative velocity
+    frbackwardsions = nbackwardsions/len(ionmatrix)
+    # strfrbackwardsions = str(frbackwardsions)[:int(np.log10(frbackwardsions)+6)]
+    
     # 3. Calculate ion densities
     icount = ioncount(ionmatrix) # calculate number of ions in each shell
     idensity = iondensity(icount) # unitless iondensity (Does not contain inner or outer edgepoints)
-    
-    density_w_inner = np.concatenate((np.array([idensity[0]]), idensity)) # repeats the innermost calculated density value to approximate density at comet)
-    new_density = np.append(density_w_inner, idensity[-1]) # repeats the outermost calculated density value to approximate outer boundary density
-    
-    del_density = (new_density - old_density) # change in density
     
     # 4. Calculate new potential using neutrality
     Vmat = Vmatrix(eps, electronphi)
@@ -496,17 +497,23 @@ for j in range(number_of_loops):
     new_F = electrondeleter(new_F, Vmat, ionsvanished) # Alt. 0. removes electrons from highest energy levels equal to number of ions removed using old potential
     highestenergy = eps[new_F.nonzero()[0][-1]] # find highest energy of the remaining electrons
     
-    neperni = electroncounter(new_F, Vmat)/len(ionmatrix)   
-    print('After electrondeleter: ' + str(neperni))
+    neperni0 = electroncounter(new_F, Vmat)/len(ionmatrix)   
+    print('After electrondeleter: ' + str(neperni0))
     new_F *= len(ionmatrix)/electroncounter(new_F, Vmat)
     
     ionVmat = Vmatrix(eps, ionphi) # matrix of velocities using spatial discretization of ions
     
-    del_phi = delphi2(ionVmat, new_F, new_density) # calculate change in potential at points x_k
-    new_ionphi = ionphi+del_phi # calculate new potential at points x_k 
+    del_phi = delphi2(ionVmat[1:-1, :], new_F, idensity) # calculate change in potential at points x_k
+    new_ionphi = ionphi[1:-1]+del_phi # calculate new potential at points x_k 
+    
+    innermost_phi = 2*new_ionphi[0]-new_ionphi[1] # assuming same Efield in innermost as in second innermost shell
+    outermost_phi = 2*new_ionphi[-1]-new_ionphi[-2] # assuming same Efield in outermost as in second outermost shell
+    new_ionphi = np.concatenate((np.array([innermost_phi]), new_ionphi)) # add innermost point to new_ionphi
+    new_ionphi = np.append(new_ionphi, outermost_phi) # assuming same Efield in outermost and second outermost shell
     
     lowphi_index = (new_ionphi<-highestenergy).nonzero() # find index of potential where the potential is below the threshold set by remaining highest energy electrons 
-    new_ionphi[lowphi_index] = -highestenergy
+    new_ionphi[lowphi_index] = -highestenergy # set these elements to the value where the highest energy electrons existing are bound
+    del_phi = new_ionphi-ionphi # rewrite again with correct length and accounting for lower limit
     
     new_electronphi = np.interp(xe, x_k, new_ionphi) # calculate new potential at points xe
     del_electronphi = new_electronphi-electronphi # calculate change in potential at points xe
@@ -529,8 +536,8 @@ for j in range(number_of_loops):
     
     new_F = Fshift2(new_F[sortind], Vmat[:, sortind], new_Vmat, new_deps)
     
-    neperni = electroncounter(new_F, new_Vmat, new_deps)/len(ionmatrix)
-    print('After Fshift: ' + str(neperni))
+    neperni1 = electroncounter(new_F, new_Vmat, new_deps)/len(ionmatrix)
+    print('After Fshift: ' + str(neperni1))
     new_F *= len(ionmatrix)/electroncounter(new_F, new_Vmat)
     
     # now resample F
@@ -553,10 +560,9 @@ for j in range(number_of_loops):
     ax1.semilogy(xe, new_electronphi*electrontemperature/beta,'.', color='k')
     ax1.semilogy(xe, -new_electronphi*electrontemperature/beta,'.', color='r')
     ax1.axhline(electrontemperature, color='b') # line for electron temperature
-    ax1.set_ylim(1e-3, 1e2)
     ax1.set(xlabel = 'Distance from comet center [R'+'$_{C}$]', ylabel = 'Potential [V]')
-    # ax3.hist(ionmatrix[:,1], bins=100) # plot histogram over ion velocities
-    
+    ax1.set_ylim(1e-3, 1e2)
+    ax1.text(0, 5e1,'Backwards ion frac.: '+str(frbackwardsions)[:5])
     # change in potential debugging
     ax1.semilogy(x_k, del_phi*electrontemperature/beta,'x', color='k')
     ax1.semilogy(x_k, -del_phi*electrontemperature/beta,'x', color='r')
@@ -573,6 +579,9 @@ for j in range(number_of_loops):
     ax2.semilogy(eps*electrontemperature/beta, rho, '.', color='k')
     ax2.semilogy(eps*electrontemperature/beta, -rho, '.', color='r')
     ax2.set(xlabel='Electron energy [eV]', ylabel= '$rho$')
+    ax2.text(-100, max(rho)/1.2, 'Ne/Ni after')
+    ax2.text(-100, max(rho)/2.4, 'Fshift: ')
+    ax2.text(-100, max(rho)/4.8, str(neperni1)[:int(np.log10(neperni1)+5)])
     ax2.yaxis.tick_right()
     
     # ax2.text(0.01, 0.37, '#_e before', transform = ax2.transAxes)
@@ -655,7 +664,6 @@ for j in range(number_of_loops):
     # ax2.yaxis.tick_right()
     
     # 8. Overwrite all old values
-    old_density = new_density
     ionphi = new_ionphi # potential evaluated at the space discretization used for ions (x_k)
     electronphi = new_electronphi # potential evaluated at the space discretization used for electrons (xe)
     old_F = new_F
@@ -682,12 +690,12 @@ for j in range(number_of_loops):
 
 fig, (ax1, ax2) = plt.subplots(1, 2)
 fig.suptitle('Timestep: '+str(counter))
-ax1.set_title('Potential [V]')
-ax1.plot(xe, new_electronphi/beta*electrontemperature,'.', color='k')
-ax1.axhline(0, color='k')
+ax1.set_title('Potential')
+ax1.plot(xe, new_electronphi,'.', color='k')
+ax1.axhline(0, color='k', linewidth=1)
 ax1.set(xlabel = 'Distance from comet center [R'+'$_{C}$]', ylabel = 'Potential')
 ax2.set_title('Electron distribution function')
-ax2.plot(eps/beta*electrontemperature, new_F, '.', color='k')
+ax2.plot(eps, new_F, '.', color='k')
 ax2.set(xlabel='Electron energy', ylabel= 'F')
 ax2.yaxis.tick_right()
 
@@ -703,14 +711,13 @@ ax2.set(xlabel='Velocity', ylabel='Number of ions')
 ax2.yaxis.tick_right()
 
 plt.figure()
-plt.title('Average energies in the system')
+plt.title('Number of particles')
 plt.xlabel('Timestep number')
-plt.ylabel('Unitless average kinetic energy')
-plt.plot(averageenergies[:,0], color='k', linestyle='--', label='Electron')
-plt.plot(averageenergies[:,1], color='k', linestyle=':', label='Ion')
-plt.plot(averageenergies[:,2], color='k', label='Both')
+plt.ylabel('Number of particles')
+plt.plot(electronnumbers, color='k', linestyle='--', label='Electrons')
+plt.plot(ionnumbers, color='k', linestyle=':', label='Ions')
 plt.axvline(10.07860256446754/Del_t, color='k')
-plt.ylim([0, max(max(averageenergies[:, 1]), max(averageenergies[:, 0]))*1.05])
+plt.ylim([0, max(electronnumbers)*1.05])
 plt.legend()
 
 plt.figure()
@@ -725,13 +732,14 @@ plt.ylim([0, max(averageenergies[:, 5])*1.05])
 plt.legend()
 
 plt.figure()
-plt.title('Number of particles')
+plt.title('Average energies in the system')
 plt.xlabel('Timestep number')
-plt.ylabel('Number of particles')
-plt.plot(electronnumbers, color='k', linestyle='--', label='Electrons')
-plt.plot(ionnumbers, color='k', linestyle=':', label='Ions')
+plt.ylabel('Unitless average kinetic energy')
+plt.plot(averageenergies[:,0], color='k', linestyle='--', label='Electron')
+plt.plot(averageenergies[:,1], color='k', linestyle=':', label='Ion')
+plt.plot(averageenergies[:,2], color='k', label='Both')
 plt.axvline(10.07860256446754/Del_t, color='k')
-plt.ylim([0, max(electronnumbers)*1.05])
+plt.ylim([0, max(max(averageenergies[:, 1]), max(averageenergies[:, 0]))*1.05])
 plt.legend()
 
 end_time = time.time()
