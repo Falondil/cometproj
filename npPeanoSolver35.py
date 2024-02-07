@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Mon Feb  5 11:26:03 2024
+
+@author: Vviik
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Mon Mar 20 09:45:49 2023
 
 @author: Vviik
@@ -228,6 +235,11 @@ def delphi2(ionVmat, F, density):
     ret = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0) # numerator/denominator if denominator != 0 else 0.
     return ret
 
+def Jtilde(Vmat): # unitless ergodic invariant
+    coef = 1 # 16*pi**2*2**(3/2)/3 # does not matter if coef is accurate since they are just compared with eachother
+    integrand = np.matrix.transpose((np.matrix.transpose(Vmat))**3*xe**2*dxe) # transpose Vmat matrix to be order to element-wise multiply by the factor x^3/2 before returning to original untransposed format.
+    return coef*np.sum(integrand, axis=0)
+
 def dJtildedeps(Vmat): # eq. 30
     L = np.sum(LI(Vmat), axis=0) # compute lower integral, x axis = 0
     return 16*pi**2*2**(1/2)*L
@@ -280,6 +292,13 @@ def newF(F0, V0, V, del_phi): # eq. 54
     
 #     return delF(V)/2 + fraction*Ifrac # add half of new electrons in new potential
 
+def epschange(del_phi, Vmat):
+    Vmatx2delphi = np.matrix.transpose(np.matrix.transpose(Vmat)*del_phi*xe**2*dxe) # create matrix with elements Vmat*x^2*dx
+    numer = -np.sum(Vmatx2delphi, axis=0) # compute integral over x
+    denom = np.sum(LI(Vmat), axis=0) # compute integral over x
+    ret = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
+    return ret
+
 def depsdeps0(Vmat, del_phi): # eq. 57
     deriv = ddelepsdeps0(Vmat, del_phi)
     return abs(1+deriv)
@@ -305,15 +324,23 @@ def electroncounter(F, Vmat, estep=deps):
     sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
     return 16*pi**2*2**(1/2)*sum(F*estep*sumVmatx2)
 
-def averageelectronenergy(F, Vmat):
-    Vmatx2 = LI(Vmat) # create matrix with elements Vmat*x^2*dx
-    sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
+# def averageelectronenergy(F, Vmat): # Legacy
+#     Vmatx2 = LI(Vmat) # create matrix with elements Vmat*x^2*dx
+#     sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
     
-    numer = (Vmat**2)@(F*deps*sumVmatx2)
-    denom = sum((xe[-1]-1)*F*deps*sumVmatx2)
-    frac = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
-    return(sum(frac*dxe))
+#     numer = (Vmat**2)@(F*deps*sumVmatx2)
+#     denom = sum((xe[-1]-1)*F*deps*sumVmatx2)
+#     frac = np.divide(numer, denom, out=np.zeros_like(numer), where=denom!=0)
+#     return(sum(frac*dxe))
 
+def electronenergy(F, Vmat):
+    Vmat3x2 = np.matrix.transpose((np.matrix.transpose(Vmat))**3*xe**2*dxe) # matrix with integrand V^3 x^2 dxe as elements. 
+    sumFVmat3x2 = np.sum(F*Vmat3x2*deps, axis=1) # compute integral over eps
+    sumsumFVmat3x2 = np.sum(sumFVmat3x2, axis=0) # compute integral over x
+    coef = 16*pi**2*2**(1/2) # coefficient for the integral
+    ret = coef*sumsumFVmat3x2 # calculate the total kinetic energy
+    return ret
+    
 def electrondeleter(F, Vmat, ionsvanished):
     Vmatx2 = LI(Vmat) # create matrix with elements Vmat*x^2*dx
     sumVmatx2 = np.sum(Vmatx2, axis=0) # compute integral over x 
@@ -511,8 +538,8 @@ for j in range(number_of_loops):
     new_ionphi = np.concatenate((np.array([innermost_phi]), new_ionphi)) # add innermost point to new_ionphi
     new_ionphi = np.append(new_ionphi, outermost_phi) # assuming same Efield in outermost and second outermost shell
     
-    lowphi_index = (new_ionphi<-highestenergy).nonzero() # find index of potential where the potential is below the threshold set by remaining highest energy electrons 
-    new_ionphi[lowphi_index] = -highestenergy # set these elements to the value where the highest energy electrons existing are bound
+    # lowphi_index = (new_ionphi<-highestenergy).nonzero() # find index of potential where the potential is below the threshold set by remaining highest energy electrons 
+    # new_ionphi[lowphi_index] = -highestenergy # set these elements to the value where the highest energy electrons existing are bound
     del_phi = new_ionphi-ionphi # rewrite again with correct length and accounting for lower limit
     
     new_electronphi = np.interp(xe, x_k, new_ionphi) # calculate new potential at points xe
@@ -520,37 +547,19 @@ for j in range(number_of_loops):
     
     halfnew_Vmat = Vmatrix(eps, new_electronphi)
     
-    # 6. calculate the new distribution function
-    new_eps = neweps(eps, electronphi, del_electronphi)
-    # new_Vmat = Vmatrix(new_eps, new_phi)
-    # old_F = electrondeleter(old_F, new_Vmat, ionsvanished) # Alt. 1. removes electrons from highest energy levels equal to number of ions removed using new potential and energy levels
-    # new_F = newF(new_F, Vmat, new_Vmat, del_phi)
-    # new_F = Fshift(new_F, Vmat, new_Vmat, del_phi) 
+    # alt. 6. calculate the new distribution function via ergodic invariant
     
-    sortind = np.argsort(new_eps) # find ind that would sort new_eps
-    # testeps = new_eps
-    # print('Was it already sorted? ' + str(np.all(testeps==new_eps)))
-    new_eps = new_eps[sortind] # sort new eps
-    new_deps = depscalc(new_eps) # find a new deps
-    new_Vmat = Vmatrix(new_eps, new_electronphi) # new sorting Vmat
+    # J0 = Jtilde(Vmat) # calculate the old ergodic invariant from the old Vmat (old potential) 
+    # J = Jtilde(halfnew_Vmat) # calculate the old ergodic invariant from the new Vmat (new potential)
     
-    new_F = Fshift2(new_F[sortind], Vmat[:, sortind], new_Vmat, new_deps)
+    # epsinterp = np.interp(J0, J, eps) # linear interpolation to evaluate at what eps* J(eps*) = J0(eps). We know the values of J at eps.  
+    # new_F = np.interp(eps, epsinterp, new_F) # pretend that new_F is the values of the distribution function at epsinterp. Then the values at the desired list of energies eps is linearly interpolated.
+    # new_F *= len(ionmatrix)/electroncounter(new_F, halfnew_Vmat) # normalize
     
-    neperni1 = electroncounter(new_F, new_Vmat, new_deps)/len(ionmatrix)
-    print('After Fshift: ' + str(neperni1))
-    new_F *= len(ionmatrix)/electroncounter(new_F, new_Vmat)
+    # alt.alt. 6
+    new_eps = eps+epschange(del_electronphi, halfnew_Vmat) # calculate the new energy levels
+    new_F = np.interp(eps, new_eps, new_F) # move the previous values of the distribution function to the new energy levels then interpolate back to find the new distribution function at the old energy levels
     
-    # now resample F
-    electronsbeforeinterp = electroncounter(new_F, new_Vmat)
-    # beforestring = str(electronsbeforeinterp)[:int(np.log10(electronsbeforeinterp)+1)]
-    
-    # interpolation which preserves the number of electrons
-    new_F = np.divide(np.interp(eps, new_eps, new_F*np.sum(LI(new_Vmat), axis=0)*new_deps), deps*np.sum(LI(Vmatrix(eps, new_electronphi)), axis=0), out=np.zeros_like(new_F), where=np.sum(LI(Vmatrix(eps, new_electronphi)), axis=0)!=0)     
-    new_F *= len(ionmatrix)/electroncounter(new_F, halfnew_Vmat)
-    
-    electronsafterinterp = electroncounter(new_F, halfnew_Vmat)
-    # afterstring = str(electronsafterinterp)[:int(np.log10(electronsafterinterp)+1)]
-    print('Electrons before/after interpolation: ', str(electronsbeforeinterp/electronsafterinterp))
     
     # Plot for each iteration (debugging)
     fig, (ax1, ax2) = plt.subplots(1, 2) 
@@ -579,9 +588,6 @@ for j in range(number_of_loops):
     ax2.semilogy(eps*electrontemperature/beta, rho, '.', color='k')
     ax2.semilogy(eps*electrontemperature/beta, -rho, '.', color='r')
     ax2.set(xlabel='Electron energy [eV]', ylabel= '$rho$')
-    ax2.text(-100, max(rho)/1.2, 'Ne/Ni after')
-    ax2.text(-100, max(rho)/2.4, 'Fshift: ')
-    ax2.text(-100, max(rho)/4.8, str(neperni1)[:int(np.log10(neperni1)+5)])
     ax2.yaxis.tick_right()
     
     # ax2.text(0.01, 0.37, '#_e before', transform = ax2.transAxes)
@@ -606,9 +612,9 @@ for j in range(number_of_loops):
     ionnumbers[counter] = len(ionmatrix)
     electronnumbers[counter] = electroncounter(new_F, halfnew_Vmat)
     
-    avg_e_energy = averageelectronenergy(new_F, halfnew_Vmat) # average kinetic energy of electrons
+    tot_e_energy = electronenergy(new_F, halfnew_Vmat) # total kinetic energy of electrons
+    avg_e_energy = tot_e_energy/electroncounter(new_F, halfnew_Vmat) # average kinetic energy of electrons
     avg_i_energy = averageionenergy(ionmatrix) # average kinetic energy of ions
-    tot_e_energy = avg_e_energy*electroncounter(new_F, halfnew_Vmat) # total kinetic energy of electrons
     tot_i_energy = avg_i_energy*len(ionmatrix) # total kinetic energy of ions
     tot_energy = tot_e_energy+tot_i_energy # total kinetic energy of electrons all particles
     
@@ -717,7 +723,6 @@ plt.xlabel('Timestep number')
 plt.ylabel('Number of particles')
 plt.plot(electronnumbers, color='k', linestyle='--', label='Electrons')
 plt.plot(ionnumbers, color='k', linestyle=':', label='Ions')
-plt.axvline(10.07860256446754/Del_t, color='k')
 plt.ylim([0, max(electronnumbers)*1.05])
 plt.legend()
 
@@ -728,7 +733,6 @@ plt.ylabel('Unitless average kinetic energy')
 plt.plot(averageenergies[:,3], color='k', linestyle='--', label='Electron')
 plt.plot(averageenergies[:,4], color='k', linestyle=':', label='Ion')
 plt.plot(averageenergies[:,5], color='k', label='Both')
-plt.axvline(10.07860256446754/Del_t, color='k')
 plt.ylim([0, max(averageenergies[:, 5])*1.05])
 plt.legend()
 
@@ -739,7 +743,6 @@ plt.ylabel('Unitless average kinetic energy')
 plt.plot(averageenergies[:,0], color='k', linestyle='--', label='Electron')
 plt.plot(averageenergies[:,1], color='k', linestyle=':', label='Ion')
 plt.plot(averageenergies[:,2], color='k', label='Both')
-plt.axvline(10.07860256446754/Del_t, color='k')
 plt.ylim([0, max(max(averageenergies[:, 1]), max(averageenergies[:, 0]))*1.05])
 plt.legend()
 
