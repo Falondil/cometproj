@@ -538,6 +538,13 @@ def electronenergy(F, Vmat):
     ret = coef*sumsumFVmat3x2  # calculate the total kinetic energy
     return ret
 
+def electronpressure(F, Vmat):
+    integrand = F*Vmat**3
+    return np.sum(integrand*deps, axis=1) # sum over eps axis = 1
+
+def electronpressuregradient(F, Vmat, xlist=x_k):
+    epressure = electronpressure(F, Vmat)
+    return (epressure[1:]-epressure[:-1])/(xlist[1:]-xlist[:-1])
 
 def electrondeleter(F, Vmat, ionsvanished, depsilon=deps):
     Vmatx2 = LI(Vmat)  # create matrix with elements Vmat*x^2*dx
@@ -563,10 +570,9 @@ def electrondeleter(F, Vmat, ionsvanished, depsilon=deps):
 # 2.1 Function definitions
 
 
-def ElectricField(philist):  # calculates the unitless electric field
+def ElectricField(philist, xlist=x_k):  # calculates the unitless electric field
     # ElectricField list has one less element than phi. (Number of shells between points = Number of points - 1)
-    return -(philist[1:]-philist[:-1])/(x_k[1:]-x_k[:-1])
-
+    return -(philist[1:]-philist[:-1])/(xlist[1:]-xlist[:-1])
 
 # Calculates the crossing times for an array of initial velocities, accelerations and the signed shell boundary distance
 def arraytimeevaluator(v0, a, s):
