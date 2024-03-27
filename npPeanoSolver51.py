@@ -27,7 +27,7 @@ beta = electrontemperature*1.6022e-19/(v_n**2*me)
 nu = 1e-6
 Q = 1e25  # [s-1], number of neutrals per second leaving the comet surface
 N_R = Q/(4*pi*r_comet**2*v_n)  # [m-3], neutral density at the comet surface
-phi0 = beta/10
+phi0 = beta/2
 
 # normalization, tbd.
 u_n = 1
@@ -703,7 +703,7 @@ def halfiondensity(i_per_shell): # calculates unitless density of simulated ions
 
 def averageionenergy(imatrix):
     vs = imatrix[:, 1]  # velocity of ions
-    return (sum(vs**2)/(2*len(vs)))
+    return (sum(vs**2)/(alpha*2*len(vs)))
 
 # 2.4 Loop
 neutral_time = int(len(x_k)/(u_n*Del_t))  # time for the neutrals to travel x_k
@@ -746,7 +746,7 @@ negativeepsind = (eps<=0).nonzero()
 negativeeps = eps[negativeepsind]
 positiveepsind = (eps>0).nonzero()
 positiveeps = eps[positiveepsind]
-existingepsind = ((eps<=0)*(-ionphi[0]<eps)).nonzero() 
+existingepsind = ((eps<=0)*(-phi_at_comet<eps)).nonzero() 
 existingeps = eps[existingepsind] 
 
 global_rho = np.zeros_like(eps)
@@ -762,7 +762,7 @@ global_rho = np.zeros_like(eps)
 # global_rho[negativeepsind] = maxwell(negativeeps,1/2*phi0) # 2.1 use maxwell dist.
 # global_rho[existingepsind] = invsqrtdist(existingeps, existingeps[0]) # 2.2 use inv square root dist.
 # global_rho[negativeepsind] = expinvsqrtdist(negativeeps, phi0/2) # 2.3 use inv square root times exponential
-global_rho[existingepsind] = doublezerodist(existingeps, ionphi[0]) # 2.4 use ...
+global_rho[existingepsind] = doublezerodist(existingeps, phi_at_comet) # 2.4 use ...
 
 global_rho*=nionstart/np.sum(global_rho*deps)
 
@@ -1028,13 +1028,14 @@ for j in range(number_of_loops):
         Vsquaredlin = np.linspace(0, np.max(Vmatrix(negativeeps, electronphi))**2, len(xe))
         X, Y = np.meshgrid(xe, Vsquaredlin)
         interpdensity = np.interp(X, x_k[1:-1], idensity)
-        Z = np.divide(4*pi*Y**(1/2)*np.interp(hamiltonian(np.interp(X, x_k, ionphi), Y), eps, new_F), interpdensity, out=np.zeros_like(X), where=interpdensity!=0)
+        Z = np.divide(4*pi*beta/electrontemperature*Y**(1/2)*np.interp(hamiltonian(np.interp(X, x_k, ionphi), Y), eps, new_F), interpdensity, out=np.zeros_like(X), where=interpdensity!=0)
         plt.figure()
-        minvalue = 1e-5
-        plt.pcolor(X, Y, Z, cmap='bwr', norm=colors.LogNorm(vmin=minvalue, vmax=Z.max()))
-        plt.colorbar(orientation='horizontal', label='Probability density per energy')
+        minvalue = 1e-3
+        plt.pcolor(X, Y*electrontemperature/beta, Z, cmap='bwr', norm=colors.LogNorm(vmin=minvalue, vmax=Z.max()))
+        plt.colorbar(orientation='horizontal', label='Probability density per energy [eV'+'$^{-1}$]')
         plt.xlabel('Distance from comet center [R'+'$_{C}$]')
-        plt.ylabel('Unitless kinetic energy [K/(m'+'$_e$'+'v'+'$_n^2$)]')
+        # plt.ylabel('Unitless kinetic energy [K/(m'+'$_e$'+'v'+'$_n^2$)]')
+        plt.ylabel('Kinetic energy [eV]')
         plt.title('Timestep: '+str(counter)+', Electrons: '+str(electroncounter(new_F, halfnew_Vmat))[:len(str(len(ionmatrix)))+2]+', Ions: '+str(len(ionmatrix)))
 
     # Relics
@@ -1078,21 +1079,21 @@ plt.legend()
 plt.figure()
 plt.title('Total energies in the system')
 plt.xlabel('Timestep number')
-plt.ylabel('Unitless average kinetic energy')
-plt.plot(averageenergies[:, 3], color='k', linestyle='--', label='Electron')
-plt.plot(averageenergies[:, 4], color='k', linestyle=':', label='Ion')
-plt.plot(averageenergies[:, 5], color='k', label='Both')
-plt.ylim([0, max(averageenergies[:, 5])*1.05])
+plt.ylabel('Unitless average kinetic energy [eV]')
+plt.plot(averageenergies[:, 3]*electrontemperature/beta, color='k', linestyle='--', label='Electron')
+plt.plot(averageenergies[:, 4]*electrontemperature/beta, color='k', linestyle=':', label='Ion')
+plt.plot(averageenergies[:, 5]*electrontemperature/beta, color='k', label='Both')
+plt.ylim([0, max(averageenergies[:, 5])*electrontemperature/beta*1.05])
 plt.legend()
 
 plt.figure()
 plt.title('Average energies in the system')
 plt.xlabel('Timestep number')
-plt.ylabel('Unitless average kinetic energy')
-plt.plot(averageenergies[:, 0], color='k', linestyle='--', label='Electron')
-plt.plot(averageenergies[:, 1], color='k', linestyle=':', label='Ion')
-plt.plot(averageenergies[:, 2], color='k', label='Both')
-plt.ylim([0, max(max(averageenergies[:, 1]), max(averageenergies[:, 0]))*1.05])
+plt.ylabel('Unitless average kinetic energy [eV]')
+plt.plot(averageenergies[:, 0]*electrontemperature/beta, color='k', linestyle='--', label='Electron')
+plt.plot(averageenergies[:, 1]*electrontemperature/beta, color='k', linestyle=':', label='Ion')
+plt.plot(averageenergies[:, 2]*electrontemperature/beta, color='k', label='Both')
+plt.ylim([0, max(max(averageenergies[:, 1]), max(averageenergies[:, 0]))*electrontemperature/beta*1.05])
 plt.legend()
 
 # Vsquaredlin = np.linspace(0, np.max(Vmatrix(negativeeps, electronphi))**2, len(xe))
